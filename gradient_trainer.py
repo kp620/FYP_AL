@@ -1,12 +1,13 @@
 import torch
 
-def train_epoch(model, optimizer, criterion, unlabel_loader, device, dtype, pseudo_labels=None):
+def train_epoch(model, optimizer, criterion, unlabel_loader, device, dtype, pseudo_labels=None, batch_size=128):
     gradients = []
+    model = model.to(device=device)
     model.train()  # Ensure the model is in training mode
 
     for index, (x, y) in enumerate(unlabel_loader):
         x = x.to(device=device, dtype=dtype)
-        pseudo_y = pseudo_labels[index].to(device=device, dtype=torch.int64)
+        pseudo_y = pseudo_labels[index * batch_size: index * batch_size + batch_size].to(device=device, dtype=torch.int64)
 
         optimizer.zero_grad()
 

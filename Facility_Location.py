@@ -21,7 +21,7 @@ def facility_location_order(
     # ----------------------------------------- #
     # Initilize FL function with filtered dataset
     K_dense = create_kernel(dataArray, mode=mode,metric='euclidean')
-    obj = FacilityLocationFunction(n=len(gradient_data), mode=mode, sijs = K_dense, num_neighbors = num_n)
+    obj = FacilityLocationFunction(n=len(gradient_data), mode=mode, sijs = K_dense, num_neighbors = num_n, separate_rep=False)
     # ----------------------------------------- #
 
     S_time = time.time() - start

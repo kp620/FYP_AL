@@ -1,0 +1,3 @@
+[submodule "submodlib"]
+	path = submodlib
+	url = https://github.com/decile-team/submodlib.git
