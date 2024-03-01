@@ -53,31 +53,31 @@ class main_Loop():
         torch.save(pseudo_labels, 'pseudo_labels.pt')
 
         
-        # Into the main loop!
-        if self.step == 0:
-            # Train the model with the pseudo labels & Calculate the gradients
-            gradients = self.gradient_calculator(unlabel_loader, pseudo_labels)
-            self.gradients = np.concatenate(gradients, axis=0)
-            print("Full gradients shape: ", self.gradients.shape)
-            self.step += 1
+        # # Into the main loop!
+        # if self.step == 0:
+        #     # Train the model with the pseudo labels & Calculate the gradients
+        #     gradients = self.gradient_calculator(unlabel_loader, pseudo_labels)
+        #     self.gradients = np.concatenate(gradients, axis=0)
+        #     print("Full gradients shape: ", self.gradients.shape)
+        #     self.step += 1
 
         
-        # Define random subsets 
-        num_subsets = 1000
-        self.subsets = self.select_random_set(num_subsets, self.gradients)
+        # # Define random subsets 
+        # num_subsets = 1000
+        # self.subsets = self.select_random_set(num_subsets, self.gradients)
 
-        # Facility Location
-        print("Facility Location Start!")
-        for subset in self.subsets: 
-            gradient_data = self.gradients[subset].squeeze()
-            sub_coreset, weights, _, _ = Facility_Location.facility_location_order(gradient_data, metric='euclidean', budget=150, weights=None, mode="dense", num_n=64)
-            self.coreset = np.append(sub_coreset)
-            self.weights = np.append(weights)
-            break
-        print("Coreset shape: ", self.coreset.shape)
-        print("Weights shape: ", self.weights.shape)
-        print("Coreset: ", self.coreset)
-        print("Weights: ", self.weights)
+        # # Facility Location
+        # print("Facility Location Start!")
+        # for subset in self.subsets: 
+        #     gradient_data = self.gradients[subset].squeeze()
+        #     sub_coreset, weights, _, _ = Facility_Location.facility_location_order(gradient_data, metric='euclidean', budget=150, weights=None, mode="dense", num_n=64)
+        #     self.coreset = np.append(sub_coreset)
+        #     self.weights = np.append(weights)
+        #     break
+        # print("Coreset shape: ", self.coreset.shape)
+        # print("Weights shape: ", self.weights.shape)
+        # print("Coreset: ", self.coreset)
+        # print("Weights: ", self.weights)
 
         # while self.reset_coreset == 0:
         #     # get quadratic approximation 
