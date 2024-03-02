@@ -74,6 +74,8 @@ class Adahessian(Optimizer):
         # This vector is used to perform a stochastic estimation of the Hessian
         v = [2 * torch.randint_like(p, high=2) - 1 for p in params]
 
+        if not params or not grads:
+            raise ValueError("params or grads are empty, ensure that model parameters require gradients and a backward pass has been executed.")
         # Calculates the gradient of the dot product <grads,v>, which gives the Hessian-vector product 'hv'
         # grad_outputs=v indicates we want to backpropagate through 'v'
         # only_inputs=True makes sure the gradients are computed only for the input(parameters)

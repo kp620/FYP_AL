@@ -53,127 +53,143 @@ class main_Loop():
         torch.save(pseudo_labels, 'pseudo_labels.pt')
 
         
-        # # Into the main loop!
-        # if self.step == 0:
-        #     # Train the model with the pseudo labels & Calculate the gradients
-        #     gradients = self.gradient_calculator(unlabel_loader, pseudo_labels)
-        #     self.gradients = np.concatenate(gradients, axis=0)
-        #     print("Full gradients shape: ", self.gradients.shape)
-        #     self.step += 1
+        # Into the main loop!
+        if self.step == 0:
+            # Train the model with the pseudo labels & Calculate the gradients
+            gradients = self.gradient_calculator(unlabel_loader, pseudo_labels)
+            self.gradients = np.concatenate(gradients, axis=0)
+            print("Full gradients shape: ", self.gradients.shape)
+            self.step += 1
 
         
-        # # Define random subsets 
-        # num_subsets = 1000
-        # self.subsets = self.select_random_set(num_subsets, self.gradients)
+        # Define random subsets 
+        num_subsets = 1000
+        self.subsets = self.select_random_set(num_subsets, self.gradients)
 
-        # # Facility Location
-        # print("Facility Location Start!")
-        # for subset in self.subsets: 
-        #     gradient_data = self.gradients[subset].squeeze()
-        #     sub_coreset, weights, _, _ = Facility_Location.facility_location_order(gradient_data, metric='euclidean', budget=150, weights=None, mode="dense", num_n=64)
-        #     self.coreset = np.append(sub_coreset)
-        #     self.weights = np.append(weights)
-        #     break
-        # print("Coreset shape: ", self.coreset.shape)
-        # print("Weights shape: ", self.weights.shape)
-        # print("Coreset: ", self.coreset)
-        # print("Weights: ", self.weights)
+        # Facility Location
+        print("Facility Location Start!")
+        for subset in self.subsets: 
+            gradient_data = self.gradients[subset].squeeze()
+            sub_coreset, weights, _, _ = Facility_Location.facility_location_order(gradient_data, metric='euclidean', budget=150, weights=None, mode="dense", num_n=64)
+            self.coreset = np.append(sub_coreset)
+            self.weights = np.append(weights)
+            
 
-        # while self.reset_coreset == 0:
-        #     # get quadratic approximation 
-        #     gf, ggf, ggf_moment = self._get_quadratic_approximation(self.coreset, self.weights)
+        while self.reset_coreset == 0:
+            # get quadratic approximation 
+            gf, ggf, ggf_moment = self._get_quadratic_approximation()
 
-        #     self.delta = -self.learning_rate * gf
-        #     # check approximation error
-        #     self._check_approx_error(gf, ggf, ggf_moment)
+            self.delta = -self.learning_rate * gf
+            # check approximation error
+            self._check_approx_error(gf, ggf, ggf_moment)
 
-        # # if self.reset_coreset == 1:
-        #     # Need to reset coreset
+        # if self.reset_coreset == 1:
+            # Need to reset coreset
             
 
 
 
+    def _get_quadratic_approximation(self, batch_size=128):
+        approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.coreset), batch_size=batch_size, shuffle=False)
+        self.start_loss = 0
 
+        self.coreset = self.coreset.astype(np.int64)
+        self.weights = torch.tensor(self.weights, dtype=self.dtype)
 
-    # def _get_quadratic_approximation(self, coreset, weights, batch_size=128):
-        
-    #     approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, coreset), batch_size=batch_size, shuffle=False)
+        for approx_batch, (input, target) in enumerate(approx_loader):
+            input = input.to(self.device, dtype=self.dtype)
+            target = target.to(self.device, dtype=self.dtype)
+            
+            weights = self.weights.clone().detach().to(device=self.device, dtype=self.dtype)
 
-    #     self.start_loss = 0
+            # train with weights
 
-    #     for approx_batch, (input, target) in enumerate(approx_loader):
-    #         input = input.to(self.device, dtype=self.dtype)
-    #         target = target.to(self.device, dtype=self.dtype)
-
-    #         # train with weights
-
-    #         # train coresets(with weights)
-    #         output = self.model(input)
+            # train coresets(with weights)
+            output = self.ini_model(input)
                 
-    #         loss = self.train_criterion(output, target)
-    #         batch_weight = weights[0+approx_batch*batch_size : batch_size+approx_batch*batch_size]
-    #         loss = (loss * batch_weight).mean()
+            loss = self.train_criterion(output, target) # BCE loss
 
-    #         self.model.zero_grad()
+            batch_weight = weights[0 + approx_batch * batch_size : batch_size + approx_batch * batch_size]
+            loss = (loss * batch_weight).mean()
 
-    #         # approximate with hessian diagonal
-    #         loss.backward(create_graph=True)
+            self.ini_model.zero_grad()
 
+            # approximate with hessian diagonal
+            loss.backward(create_graph=True)
 
-    #         gf_tmp, ggf_tmp, ggf_tmp_moment = self.gradient_approx_optimizer.step(self.model.parameters(), momentum=True)
+            gf_tmp, ggf_tmp, ggf_tmp_moment = self.gradient_approx_optimizer.step(self.model.parameters(), momentum=True)
 
-    #         if approx_batch == 0:
-    #             self.gf = gf_tmp * batch_size
-    #             self.ggf = ggf_tmp * batch_size
-    #             self.ggf_moment = ggf_tmp_moment * batch_size
-    #         else:
-    #             self.gf += gf_tmp * batch_size
-    #             self.ggf += ggf_tmp * batch_size
-    #             self.ggf_moment += ggf_tmp_moment * batch_size
+            if approx_batch == 0:
+                self.gf = gf_tmp * batch_size
+                self.ggf = ggf_tmp * batch_size
+                self.ggf_moment = ggf_tmp_moment * batch_size
+            else:
+                self.gf += gf_tmp * batch_size
+                self.ggf += ggf_tmp * batch_size
+                self.ggf_moment += ggf_tmp_moment * batch_size
 
-    #         self.start_loss = loss.item()
+            self.start_loss = loss.item()
  
-    #     self.gf /= len(approx_loader.dataset)
-    #     self.ggf /= len(approx_loader.dataset)
-    #     self.ggf_moment /= len(approx_loader.dataset)
+        self.gf /= len(approx_loader.dataset)
+        self.ggf /= len(approx_loader.dataset)
+        self.ggf_moment /= len(approx_loader.dataset)
 
+    def train_coreset(self, batch_size = 128):
+        approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.coreset), batch_size=batch_size, shuffle=False)
+        for approx_batch, (input, target) in enumerate(approx_loader):
+            input = input.to(self.device, dtype=self.dtype)
+            target = target.to(self.device, dtype=self.dtype)
 
-    # def _check_approx_error(self):
-    #     # calculate true loss
-        
-    #     model = self.model
+            self.ini_model.train()
 
-    #     self.model.eval()
+            weights = self.weights.clone().detach().to(device=self.device, dtype=self.dtype)
+            output = self.ini_model(input)
 
-    #     self.train_output = np.zeros((len(self.train_dataset), self.args.num_classes))
+            loss = self.train_criterion(output, target)
 
-    #     with torch.no_grad():
-    #         for _, (data, _, data_idx) in enumerate(self.train_val_loader):
-    #             data = data.to(self.args.device)
+            batch_weight = weights[0 + approx_batch * batch_size : batch_size + approx_batch * batch_size]
+            loss = (loss * batch_weight).mean()
+            
+            if self.lr > 0:
+                self.ini_model.zero_grad()
+                loss.backward(create_graph=True)
+                gf_current, _, _ = self.gradient_approx_optimizer.step(momentum=False)
+                self.delta = -self.lr * gf_current
+            
+            optimizer.zero_grad()
 
-    #             output = self.model(data)
+            loss.backward()
+            optimizer.step()
+ 
 
-    #             self.train_output[data_idx] = output.cpu().numpy()
+    def _check_approx_error(self):
+        # calculate true loss
+        approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.coreset), batch_size=batch_size, shuffle=False)
+        self.ini_model.eval()
+        true_loss = 0
 
-    #     self.model.train()
+        with torch.no_grad():
+            for approx_batch, (input, target) in enumerate(approx_loader):
+                input = input.to(self.device, dtype=self.dtype)
+                target = target.to(self.device, dtype=self.dtype)
 
+                output = self.ini_model(input)
+                loss = self.train_criterion(output, target)
+                true_loss += loss.item()
 
+        approx_loss = torch.matmul(self.delta, self.gf) + self.start_loss
+        approx_loss += 1/2 * torch.matmul(self.delta * self.ggf, self.delta)
 
+        loss_diff = abs(true_loss - approx_loss.item())
+        print("true loss: ", true_loss)
+        print("approx loss: ", approx_loss)
+        print("diff: ", loss_diff)
 
-    #     true_loss = self.val_criterion(
-    #         torch.from_numppy(self.train_output[self.random_sets]),
-    #         torch.from_numppy(self.psuedo_label[self.random_sets]),
-    #     )
+        thresh = self.check_thresh_factor * self.true_loss
 
-    #     approx_loss = torch.matmul(self.delta, self.gf) + self.start_loss
-    #     approx_loss += 1 / 2 * torch.matmul(self.delta * self.ggf, self.delta)
-
-    #     loss_diff = abs(true_loss - approx_loss.item())
-    #     thresh = self.args.check_thresh_factor * self.true_loss
-
-    #     if loss_diff > thresh:
-    #         self.reset_coreset = 1
-    #         print("Reset Coreset!")
+        if loss_diff > thresh: 
+            self.reset_coreset = 1
+            print("Reset coreset!")
 
 
 
