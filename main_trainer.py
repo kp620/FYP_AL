@@ -34,6 +34,8 @@ class main_trainer():
         self.approx_loader = None
         self.start_loss = 0
 
+        self.update_times = 0
+
     def reset(self):
         self.gradients = None
         self.coreset = []
@@ -54,27 +56,29 @@ class main_trainer():
 
     def main_loop(self):
         self.initial_training()
-        # Update coreset!
-        if self.update_coreset == 1:
-            self.gradients = gradient_trainer.train_epoch(self.gradient_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = nn.CrossEntropyLoss())
-            subsets = self.select_random_set()
-            print("Facility Location Start!")
-            subset_count = 0
-            for subset in subsets: 
-                print("Handling subset #", subset_count)
-                gradient_data = self.gradients[subset].squeeze()
-                sub_coreset, weights, _, _ = Facility_Location.facility_location_order(gradient_data, metric='euclidean', budget=100, weights=None, mode="dense", num_n=64)
-                self.coreset.append(sub_coreset)
-                self.weights.append(weights)
-                subset_count += 1
-            self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.coreset), batch_size=self.batch_size, shuffle=False)
-            self.get_quadratic_approximation()
-            self.update_coreset = 0
-        
-        if self.update_coreset == 0:
-            print("Not training coreset!")
-            self.train_coreset()
-            self.check_approx_error()
+        while self.update_times < 10:
+            # Update coreset!
+            if self.update_coreset == 1:
+                self.gradients = gradient_trainer.train_epoch(self.gradient_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = nn.CrossEntropyLoss())
+                subsets = self.select_random_set()
+                print("Facility Location Start!")
+                subset_count = 0
+                for subset in subsets: 
+                    print("Handling subset #", subset_count)
+                    gradient_data = self.gradients[subset].squeeze()
+                    sub_coreset, weights, _, _ = Facility_Location.facility_location_order(gradient_data, metric='euclidean', budget=100, weights=None, mode="dense", num_n=64)
+                    self.coreset.append(sub_coreset)
+                    self.weights.append(weights)
+                    subset_count += 1
+                self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.coreset), batch_size=self.batch_size, shuffle=False)
+                self.get_quadratic_approximation()
+                self.update_coreset = 0
+                self.update_times += 1
+            
+            if self.update_coreset == 0:
+                print("Not training coreset!")
+                self.train_coreset()
+                self.check_approx_error()
 
 # --------------------------------
 # Auxiliary functions        
@@ -113,7 +117,7 @@ class main_trainer():
         else:
             self.update_coreset = 0
             
-            
+
     def train_coreset(self):
         gradient_approx_optimizer = gradients.Adahessian(self.train_model.parameters())
         train_criterion = nn.BCELoss()
