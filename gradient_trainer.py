@@ -1,6 +1,8 @@
 import torch
+import numpy as np
 
-def train_epoch(model, optimizer, criterion, unlabel_loader, device, dtype, pseudo_labels=None, batch_size=128):
+def train_epoch(model, unlabel_loader, pseudo_labels, device, dtype, batch_size, criterion):
+    # optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     gradients = []
     model = model.to(device=device)
     model.train()  # Ensure the model is in training mode
@@ -8,8 +10,6 @@ def train_epoch(model, optimizer, criterion, unlabel_loader, device, dtype, pseu
     for index, (x, y) in enumerate(unlabel_loader):
         x = x.to(device=device, dtype=dtype)
         pseudo_y = pseudo_labels[index * batch_size: index * batch_size + batch_size].to(device=device, dtype=torch.int64)
-
-        optimizer.zero_grad()
 
         # Process input through the model up to the penultimate layer
         penultimate_output = model.forward_to_penultimate(x)
@@ -20,12 +20,7 @@ def train_epoch(model, optimizer, criterion, unlabel_loader, device, dtype, pseu
 
         scores = model.part2(penultimate_output_detached)
         loss = criterion(scores, pseudo_y)
-
-
         loss.backward()
-
-        # Not to update the model
-        # optimizer.step()
 
         if penultimate_output_detached.grad is not None:
             # Convert the gradient to a NumPy array and store it
@@ -34,4 +29,5 @@ def train_epoch(model, optimizer, criterion, unlabel_loader, device, dtype, pseu
             gradients.append(None)
 
     print("Gradients Computation DONE!")
+    gradients = np.concatenate(gradients, axis=0)
     return gradients

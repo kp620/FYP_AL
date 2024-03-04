@@ -37,15 +37,13 @@ def explain_model():
     print("Total number of parameters is: ", params)
     return model
 
-def kaiming_ini(model):
+def build_model():
+    model = explain_model()
+    # kaiming initialization
     if isinstance(model, torch.nn.Linear) or isinstance(model, torch.nn.Conv1d):
         torch.nn.init.kaiming_uniform_(model.weight)
         if model.bias is not None:
             torch.nn.init.zeros_(model.bias)
-    
-def build_model():
-    model = explain_model()
-    model.apply(kaiming_ini)
     return model
 
 def check_accuracy(model, val_loader, device, dtype, criterion, analysis=False):
@@ -53,7 +51,6 @@ def check_accuracy(model, val_loader, device, dtype, criterion, analysis=False):
     validation_loss = 0.0
     correct_predictions = 0
     total_predictions = 0
-
     # Disable gradient calculations
     with torch.no_grad():
         for inputs, targets in val_loader:
@@ -83,9 +80,9 @@ def check_accuracy(model, val_loader, device, dtype, criterion, analysis=False):
     # Return results
     return validation_loss, validation_accuracy
 
-def train_epoch(model, train_loader, val_loader, device, dtype, criterion):
+def train_epoch(model, train_loader, val_loader, device, dtype, criterion, learning_rate):
     model = model.to(device=device)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     # Training loop
     num_epochs = 10
@@ -99,7 +96,6 @@ def train_epoch(model, train_loader, val_loader, device, dtype, criterion):
 
             scores = model(x)
             loss = criterion(scores,y)
-
 
             loss.backward()
             optimizer.step()

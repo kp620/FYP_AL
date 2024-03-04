@@ -32,12 +32,9 @@ class gradient_one_dimensional_CNN(nn.Module):
         x = self.conv4(x)
         x = self.bn4(x)
         x = self.pool2(x)
-        # x = x.view(x.size(0), -1)
-        # x = self.fc(x)
         return x
 
     def part2(self, x):
-        # x = F.softmax(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
@@ -60,13 +57,12 @@ def explain_model():
     print("Total number of parameters is: ", params)
     return model
 
-def kaiming_ini(model):
+    
+def build_model():
+    model = explain_model()
+    # kaiming initialization
     if isinstance(model, torch.nn.Linear) or isinstance(model, torch.nn.Conv1d):
         torch.nn.init.kaiming_uniform_(model.weight)
         if model.bias is not None:
             torch.nn.init.zeros_(model.bias)
-    
-def build_model():
-    model = explain_model()
-    model.apply(kaiming_ini)
     return model
