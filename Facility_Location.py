@@ -1,4 +1,4 @@
-import submodlib_config
+import Submodlib_config
 import time 
 import numpy as np
 from submodlib.helper import create_kernel

@@ -1,6 +1,6 @@
 # --------------------------------
 # Import area
-import test_cuda, Train_model_trainer, Train_model, Random_Sampling, Gradient_model_trainer, Gradient_model, Facility_Location, gradients
+import Test_cuda, Train_model_trainer, Train_model, Data_wrapper, Gradient_model_trainer, Gradient_model, Facility_Location, Approx_optimizer
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, Subset
 
 class main_trainer():
     def __init__(self) -> None:
-        self.device, self.dtype = test_cuda.check_device() # Check if cuda is available
+        self.device, self.dtype = Test_cuda.check_device() # Check if cuda is available
         # Model & Parameters
         self.train_model = Train_model.build_model() # Model used to train the data(M_0)
         self.batch_size = 128 # Batch size
@@ -51,7 +51,7 @@ class main_trainer():
     def initial_training(self):
         # Load training data, acquire label and unlabel set using rs_rate
         # Divide the label set into training and validation set
-        ini_train_loader, ini_val_loader, unlabel_set = Random_Sampling.process(batch_size=self.batch_size, rs_rate=self.rs_rate)
+        ini_train_loader, ini_val_loader, unlabel_set = Data_wrapper.process(batch_size=self.batch_size, rs_rate=self.rs_rate)
         # Update unlabel_loader
         self.unlabel_loader =  DataLoader(unlabel_set, batch_size=self.batch_size, shuffle=True)
         # Train the initial model over the label set
@@ -145,7 +145,7 @@ class main_trainer():
             
 
     def train_coreset(self):
-        gradient_approx_optimizer = gradients.Adahessian(self.train_model.parameters())
+        gradient_approx_optimizer = Approx_optimizer.Adahessian(self.train_model.parameters())
         train_criterion = nn.BCELoss()
         optimizer = optim.Adam(self.train_model.parameters(), lr=self.lr)
         self.weights = torch.tensor(self.weights, dtype=self.dtype)
@@ -176,7 +176,7 @@ class main_trainer():
 
     def get_quadratic_approximation(self):
         train_criterion = nn.BCELoss()
-        gradient_approx_optimizer = gradients.Adahessian(self.train_model.parameters())
+        gradient_approx_optimizer = Approx_optimizer.Adahessian(self.train_model.parameters())
         # self.coreset = self.coreset.astype(np.int64)
         self.weights = torch.tensor(self.weights, dtype=self.dtype)
         count = 0
