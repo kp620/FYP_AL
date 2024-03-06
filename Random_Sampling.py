@@ -17,7 +17,7 @@ def load_training_data():
     return full_dataset
 
 # Select samples to label(manually)
-def rs_acquire_label(full_dataset, rs_rate= 0.05):
+def rs_acquire_label(full_dataset, rs_rate = 0.05):
     num_samples = int(len(full_dataset) * rs_rate)
     indices = np.random.choice(len(full_dataset), num_samples, replace=False)
     label_set = Subset(full_dataset, indices)
