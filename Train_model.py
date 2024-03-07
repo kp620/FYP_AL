@@ -7,22 +7,48 @@ import numpy as np
 class train_model(nn.Module):
     def __init__(self):
         super(train_model, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels=1, out_channels=32, kernel_size=5, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm1d(32)
-        self.conv2 = nn.Conv1d(in_channels=32, out_channels=128, kernel_size=5, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm1d(128)
-        self.conv3 = nn.Conv1d(in_channels=128, out_channels=256, kernel_size=5, stride=1, padding=1)
-        self.bn3 = nn.BatchNorm1d(256)
-        self.conv4 = nn.Conv1d(in_channels=256, out_channels=512, kernel_size=5, stride=1, padding=1)
-        self.bn4 = nn.BatchNorm1d(512)
-        self.pool = nn.MaxPool1d(kernel_size=2, stride=2, padding=0)
-        self.fc = nn.Linear(in_features=512 * 6, out_features=1)
+        # self.conv1 = nn.Conv1d(in_channels=1, out_channels=32, kernel_size=5, stride=1, padding=1)
+        # self.bn1 = nn.BatchNorm1d(32)
+        # self.conv2 = nn.Conv1d(in_channels=32, out_channels=128, kernel_size=5, stride=1, padding=1)
+        # self.bn2 = nn.BatchNorm1d(128)
+        # self.conv3 = nn.Conv1d(in_channels=128, out_channels=256, kernel_size=5, stride=1, padding=1)
+        # self.bn3 = nn.BatchNorm1d(256)
+        # self.conv4 = nn.Conv1d(in_channels=256, out_channels=512, kernel_size=5, stride=1, padding=1)
+        # self.bn4 = nn.BatchNorm1d(512)
+        # self.pool = nn.MaxPool1d(kernel_size=2, stride=2, padding=0)
+        # self.fc = nn.Linear(in_features=512 * 6, out_features=1)
+        
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=32, kernel_size=5, stride=2, padding=1)
+        self.bn1 = nn.BatchNorm1d(32) # 32 * 38
+
+        self.conv2 = nn.Conv1d(in_channels=32, out_channels=128, kernel_size=5, stride=2, padding=1)
+        self.bn2 = nn.BatchNorm1d(128) # 128 * 18
+        self.pool1 = nn.MaxPool1d(kernel_size=2, stride=2, padding=0) # 128 * 9
+
+        self.conv3 = nn.Conv1d(in_channels=128, out_channels=512, kernel_size=5, stride=2, padding=1)
+        self.bn3 = nn.BatchNorm1d(512) # 256 * 4
+
+        self.conv4 = nn.Conv1d(in_channels=512, out_channels=1024, kernel_size=3, stride=1, padding=0)
+        self.bn4 = nn.BatchNorm1d(1024) # 512 * 2
+        self.pool2 = nn.MaxPool1d(kernel_size=2, stride=2, padding=0) # 512 * 1
+
+        self.fc = nn.Linear(in_features=1024 * 1, out_features=1)
 
     def part1(self, x):
-        x = self.pool(F.relu(self.bn1(self.conv1(x)))) # 32 * 38
-        x = self.pool(F.relu(self.bn2(self.conv2(x)))) # 128 * 18
-        x = self.pool(F.relu(self.bn3(self.conv3(x)))) # 256 * 8
-        x = self.bn4(self.conv4(x)) # 512 * 6
+        # x = self.pool(F.relu(self.bn1(self.conv1(x)))) # 32 * 38
+        # x = self.pool(F.relu(self.bn2(self.conv2(x)))) # 128 * 18
+        # x = self.pool(F.relu(self.bn3(self.conv3(x)))) # 256 * 8
+        # x = self.bn4(self.conv4(x)) # 512 * 6
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.pool1(x)
+        x = self.conv3(x)
+        x = self.bn3(x)
+        x = self.conv4(x)
+        x = self.bn4(x)
+        x = self.pool2(x)
         return x
     
     def part2(self, x):
@@ -136,4 +162,5 @@ def gradient_train_epoch(model, unlabel_loader, pseudo_labels, device, dtype, ba
             gradients.append(None)
 
     gradients = np.concatenate(gradients, axis=0)
+    # np.savetxt('gradients.txt', gradients.reshape(gradients.shape[0], -1))
     return gradients
