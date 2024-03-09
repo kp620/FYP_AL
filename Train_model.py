@@ -114,7 +114,7 @@ def check_accuracy(model, val_loader, device, dtype, criterion):
     # Return results
     return validation_loss, validation_accuracy
 
-def train_epoch(model, train_loader, val_loader, device, dtype, criterion, learning_rate):
+def train_epoch(model, train_loader, device, dtype, criterion, learning_rate):
     model = model.to(device=device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
@@ -132,8 +132,8 @@ def train_epoch(model, train_loader, val_loader, device, dtype, criterion, learn
             optimizer.step()
             if t % 1000 == 0:
                 print(f'Epoch {epoch+1}, Loss: {loss.item()}')
-        val_loss, val_accuracy = check_accuracy(model, val_loader, device, dtype, criterion)
-        print(f'Validation Loss: {val_loss:.4f}, Validation Accuracy: {val_accuracy:.2f}')
+        # val_loss, val_accuracy = check_accuracy(model, val_loader, device, dtype, criterion)
+        # print(f'Validation Loss: {val_loss:.4f}, Validation Accuracy: {val_accuracy:.2f}')
 
 def gradient_train_epoch(model, unlabel_loader, pseudo_labels, device, dtype, batch_size, criterion):
     gradients = []

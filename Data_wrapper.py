@@ -41,5 +41,6 @@ def train_val_split(label_set, batch_size):
 def process(batch_size, rs_rate):
     full_dataset = load_training_data()
     label_set, unlabeled_set = rs_acquire_label(full_dataset, rs_rate)
-    train_loader, val_loader = train_val_split(label_set, batch_size)
-    return train_loader, val_loader, unlabeled_set
+    # train_loader, val_loader = train_val_split(label_set, batch_size)
+    train_loader = DataLoader(label_set, batch_size=batch_size, shuffle=True)
+    return train_loader, unlabeled_set

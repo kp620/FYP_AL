@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 
 
-def initial_train(train_loader, val_loader, model, device, dtype, criterion, learning_rate):
-    Train_model.train_epoch(model, train_loader, val_loader, device, dtype, criterion=criterion, learning_rate=learning_rate)
+def initial_train(train_loader, model, device, dtype, criterion, learning_rate):
+    Train_model.train_epoch(model, train_loader, device, dtype, criterion=criterion, learning_rate=learning_rate)
     print("Initial training complete!")
 
 def gradient_train(model, unlabel_loader, pseudo_labels, device, dtype, batch_size, criterion):

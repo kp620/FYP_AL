@@ -28,14 +28,14 @@ class main_trainer():
         self.coreset = [] # Store coreset
         self.weights = [] # Store weights
         self.rs_rate = 0.05 # Percentage of the dataset to acuquire manual labelling
-        self.num_subsets = 2500 # Number of random subsets
+        self.num_subsets = 5000 # Number of random subsets
         self.subset_size = 0 # Size of each subset
         self.gf = 0 # Store gradient
         self.ggf = 0 # Store hutchinson trace
         self.ggf_moment = 0 # Store hutchinson trace moment
         self.delta = 0 # Store delta
         self.start_loss = 0 # Store start loss
-        self.check_thresh_factor = 0.01 # Threshold factor (SELF_TUNE!!!)
+        self.check_thresh_factor = 0.1 # Threshold factor (SELF_TUNE!!!)
 
     def reset(self):
         self.gradients = None
@@ -52,11 +52,11 @@ class main_trainer():
     def initial_training(self):
         # Load training data, acquire label and unlabel set using rs_rate
         # Divide the label set into training and validation set
-        ini_train_loader, ini_val_loader, unlabel_set = Data_wrapper.process(batch_size=self.batch_size, rs_rate=self.rs_rate)
+        ini_train_loader, unlabel_set = Data_wrapper.process(batch_size=self.batch_size, rs_rate=self.rs_rate)
         # Update unlabel_loader
         self.unlabel_loader =  DataLoader(unlabel_set, batch_size=self.batch_size, shuffle=True)
         # Train the initial model over the label set
-        Train_model_trainer.initial_train(ini_train_loader, ini_val_loader, self.train_model, self.device, self.dtype, criterion=nn.BCELoss(), learning_rate=self.lr)
+        Train_model_trainer.initial_train(ini_train_loader, self.train_model, self.device, self.dtype, criterion=nn.BCELoss(), learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
         self.pseudo_labels = Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
 
