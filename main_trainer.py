@@ -1,6 +1,6 @@
 # --------------------------------
 # Import area
-import Test_cuda, Train_model_trainer, Train_model, Data_wrapper, Gradient_model_trainer, Gradient_model, Facility_Location, Approx_optimizer
+import Test_cuda, Train_model_trainer, Train_model, Data_wrapper, Gradient_model_trainer, Gradient_model, Facility_Location, Approx_optimizer, restnet_1d
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -13,7 +13,7 @@ class main_trainer():
     def __init__(self) -> None:
         self.device, self.dtype = Test_cuda.check_device() # Check if cuda is available
         # Model & Parameters
-        self.train_model = Train_model.build_model() # Model used to train the data(M_0)
+        self.train_model = restnet_1d.build_model() # Model used to train the data(M_0)
         self.batch_size = 128 # Batch size
         self.lr = 0.001 # Learning rate
         # Counter
@@ -36,6 +36,7 @@ class main_trainer():
         self.delta = 0 # Store delta
         self.start_loss = 0 # Store start loss
         self.check_thresh_factor = 0.1 # Threshold factor (SELF_TUNE!!!)
+        self.reset = 0 # Decide if the coreset needs to be reset
 
     def reset(self):
         self.gradients = None
@@ -53,10 +54,13 @@ class main_trainer():
         # Load training data, acquire label and unlabel set using rs_rate
         # Divide the label set into training and validation set
         ini_train_loader, unlabel_set = Data_wrapper.process(batch_size=self.batch_size, rs_rate=self.rs_rate)
+
+            # batch size 128, each batch has shape [128,1,78]
+
         # Update unlabel_loader
         self.unlabel_loader =  DataLoader(unlabel_set, batch_size=self.batch_size, shuffle=True)
         # Train the initial model over the label set
-        Train_model_trainer.initial_train(ini_train_loader, self.train_model, self.device, self.dtype, criterion=nn.BCELoss(), learning_rate=self.lr)
+        Train_model_trainer.initial_train(ini_train_loader, self.train_model, self.device, self.dtype, criterion=nn.CrossEntropyLoss(), learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
         self.pseudo_labels = Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
 
@@ -70,7 +74,7 @@ class main_trainer():
             if self.update_coreset == 1:
                 print("Update coreset!")
                 # Use the train model to acquire gradients
-                self.gradients = Train_model_trainer.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = nn.BCELoss())
+                self.gradients = Train_model_trainer.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = nn.CrossEntropyLoss())
                 # Select random subsets
                 subsets = self.select_random_set()
                 print("Greedy FL Start!")
@@ -91,10 +95,10 @@ class main_trainer():
                     subset_count += 1
                 print("Greedy FL End!")
                 
-                print("len(coreset): ", len(self.coreset))
-                are_distinct = len(self.coreset) == len(set(self.coreset))
-                print("whether distinctive? ", are_distinct)
-                print("len(weights): ", len(self.weights))
+                # print("len(coreset): ", len(self.coreset))
+                # are_distinct = len(self.coreset) == len(set(self.coreset))
+                # print("whether distinctive? ", are_distinct)
+                # print("len(weights): ", len(self.weights))
 
                 # Update approx_loader
                 self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.coreset), batch_size=self.batch_size, shuffle=False)
@@ -114,6 +118,11 @@ class main_trainer():
                 print("delta: ", self.delta)
                 print("start_loss: ", self.start_loss)
                 self.check_approx_error()
+                if self.reset() == 1:
+                    if(self.update_times == self.update_times_limit):
+                        return self.coreset, self.weights, self.train_model
+                    else:
+                        self.reset()
         return self.coreset, self.weights, self.train_model
 
 # --------------------------------
@@ -123,15 +132,15 @@ class main_trainer():
         # calculate true loss
         self.train_model.eval()
         true_loss = 0
-        train_criterion = nn.BCELoss()
+        train_criterion = nn.CrossEntropyLoss()
 
         with torch.no_grad():
-            for approx_batch, (input, target) in enumerate(self.approx_loader):
+            for approx_batch, (input, target) in enumerate(self.unlabel_loader):
                 input = input.to(self.device, dtype=self.dtype)
-                # target = target.to(self.device, dtype=self.dtype)
-                pseudo_y = self.pseudo_labels[self.coreset[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]].to(self.device, dtype=self.dtype).unsqueeze(1)
 
-                output = self.train_model(input)
+                pseudo_y = self.pseudo_labels[self.coreset[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]].to(self.device, dtype=self.dtype).squeeze().long()
+
+                output, _ = self.train_model(input)
                 loss = train_criterion(output, pseudo_y)
                 true_loss += loss.item()
 
@@ -145,28 +154,31 @@ class main_trainer():
         print("diff: ", loss_diff)
 
         #------------TODO--------------
-        thresh = self.check_thresh_factor * true_loss                          
+        rou = loss_diff / true_loss
+        # thresh = self.check_thresh_factor * true_loss                          
         #------------TODO--------------
 
-        if loss_diff > thresh: 
+        if rou > self.check_thresh_factor: 
             self.update_coreset = 1
             print("Need to reset coreset!")
             self.pseudo_labels= Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
-            self.reset()
+            self.reset = 1
         else:
             self.update_coreset = 0
+            self.reset = 0 
             
 
     def train_coreset(self):
-        gradient_approx_optimizer = Approx_optimizer.Adahessian(self.train_model.parameters())
-        train_criterion = nn.BCELoss()
+        tmp_params = [p.clone() for p in self.train_model.parameters()]
+        gradient_approx_optimizer = Approx_optimizer.Adahessian(tmp_params)
+        train_criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(self.train_model.parameters(), lr=self.lr)
         self.weights = torch.tensor(self.weights, dtype=self.dtype)
         for approx_batch, (input, target) in enumerate(self.approx_loader):
             optimizer.zero_grad()
             input = input.to(self.device, dtype=self.dtype)
             # target = target.to(self.device, dtype=self.dtype)
-            pseudo_y = self.pseudo_labels[self.coreset[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]].to(self.device, dtype=self.dtype).unsqueeze(1)
+            pseudo_y = self.pseudo_labels[self.coreset[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]].to(self.device, dtype=self.dtype).squeeze().long()
 
             self.train_model.train()
 
@@ -189,18 +201,17 @@ class main_trainer():
 
 
     def get_quadratic_approximation(self):
-        train_criterion = nn.BCELoss()
-        gradient_approx_optimizer = Approx_optimizer.Adahessian(self.train_model.parameters())
-        # self.coreset = self.coreset.astype(np.int64)
+        train_criterion = nn.CrossEntropyLoss()
+        tmp_params = [p.clone() for p in self.train_model.parameters()]
+        gradient_approx_optimizer = Approx_optimizer.Adahessian(tmp_params)
         self.weights = torch.tensor(self.weights, dtype=self.dtype)
         count = 0
         for approx_batch, (input, target) in enumerate(self.approx_loader):
             input = input.to(self.device, dtype=self.dtype)
-            # target = target.to(self.device, dtype=self.dtype)
-            pseudo_y = self.pseudo_labels[self.coreset[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]].to(self.device, dtype=self.dtype).unsqueeze(1)
+            pseudo_y = self.pseudo_labels[self.coreset[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]].to(self.device, dtype=self.dtype).squeeze().long()
             weights = self.weights.clone().detach().to(device=self.device, dtype=self.dtype)
             # train coresets(with weights)
-            output = self.train_model(input)
+            output, _ = self.train_model(input)
             loss = train_criterion(output, pseudo_y)
             batch_weight = weights[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]
             loss = (loss * batch_weight).mean()
@@ -240,9 +251,9 @@ class main_trainer():
 
 
 
-
-
 caller = main_trainer()
 coreset , weights, model = caller.main_loop()
-# print("shape(weights): ", weights.shape)
-# torch.save(model.state_dict(), 'model_parameters.pth') # Save model parameters
+print("len coreset: ", len(coreset))
+print("len weights: ", len(weights))
+np.save('coreset.npy', coreset)
+np.save('weights.npy', weights)

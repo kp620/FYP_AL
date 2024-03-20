@@ -7,17 +7,6 @@ import numpy as np
 class train_model(nn.Module):
     def __init__(self):
         super(train_model, self).__init__()
-        # self.conv1 = nn.Conv1d(in_channels=1, out_channels=32, kernel_size=5, stride=1, padding=1)
-        # self.bn1 = nn.BatchNorm1d(32)
-        # self.conv2 = nn.Conv1d(in_channels=32, out_channels=128, kernel_size=5, stride=1, padding=1)
-        # self.bn2 = nn.BatchNorm1d(128)
-        # self.conv3 = nn.Conv1d(in_channels=128, out_channels=256, kernel_size=5, stride=1, padding=1)
-        # self.bn3 = nn.BatchNorm1d(256)
-        # self.conv4 = nn.Conv1d(in_channels=256, out_channels=512, kernel_size=5, stride=1, padding=1)
-        # self.bn4 = nn.BatchNorm1d(512)
-        # self.pool = nn.MaxPool1d(kernel_size=2, stride=2, padding=0)
-        # self.fc = nn.Linear(in_features=512 * 6, out_features=1)
-        
         self.conv1 = nn.Conv1d(in_channels=1, out_channels=32, kernel_size=5, stride=2, padding=1)
         self.bn1 = nn.BatchNorm1d(32) # 32 * 38
 
@@ -35,10 +24,6 @@ class train_model(nn.Module):
         self.fc = nn.Linear(in_features=1024 * 1, out_features=1)
 
     def part1(self, x):
-        # x = self.pool(F.relu(self.bn1(self.conv1(x)))) # 32 * 38
-        # x = self.pool(F.relu(self.bn2(self.conv2(x)))) # 128 * 18
-        # x = self.pool(F.relu(self.bn3(self.conv3(x)))) # 256 * 8
-        # x = self.bn4(self.conv4(x)) # 512 * 6
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.conv2(x)
@@ -112,9 +97,11 @@ def check_accuracy(model, val_loader, device, dtype, criterion):
     print("correct predictions: ", correct_predictions)
     print("total_predictions: ", total_predictions)
     # Return results
+    model.train()  # set model back to train mode
     return validation_loss, validation_accuracy
 
 def train_epoch(model, train_loader, device, dtype, criterion, learning_rate):
+    model.train()
     model = model.to(device=device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
@@ -138,14 +125,16 @@ def train_epoch(model, train_loader, device, dtype, criterion, learning_rate):
 def gradient_train_epoch(model, unlabel_loader, pseudo_labels, device, dtype, batch_size, criterion):
     gradients = []
     model = model.to(device=device)
-    model.train()  # Ensure the model is in training mode
+    model.eval()  # Ensure the model is in training mode
 
     for index, (x, y) in enumerate(unlabel_loader):
         x = x.to(device=device, dtype=dtype)
         pseudo_y = pseudo_labels[index * batch_size: index * batch_size + batch_size].to(device=device, dtype=dtype).unsqueeze(1)
 
-        # Process input through the model up to the penultimate layer
-        penultimate_output = model.forward_to_penultimate(x)
+        # Ensure no gradients are computed for the model parameters
+        with torch.no_grad():
+            # Process input through the model up to the penultimate layer
+            penultimate_output = model.forward_to_penultimate(x)
 
         # Detach the output of the penultimate layer from the computation graph
         penultimate_output_detached = penultimate_output.detach()
@@ -163,4 +152,5 @@ def gradient_train_epoch(model, unlabel_loader, pseudo_labels, device, dtype, ba
 
     gradients = np.concatenate(gradients, axis=0)
     # np.savetxt('gradients.txt', gradients.reshape(gradients.shape[0], -1))
+    model.train()
     return gradients
