@@ -153,7 +153,6 @@ def psuedo_labeling(model, devc, dtype, loader):
 
     # Concatenate the list of labels into a single tensor
     pseudo_labels = torch.cat(pseudo_labels)
-    print("Pseudo labeling complete!")
     return pseudo_labels
 
 

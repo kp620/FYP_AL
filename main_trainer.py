@@ -36,10 +36,9 @@ class main_trainer():
         self.delta = 0 # Store delta
         self.start_loss = 0 # Store start loss
         self.check_thresh_factor = 0.1 # Threshold factor (SELF_TUNE!!!)
-        self.reset = 0 # Decide if the coreset needs to be reset
 
     def reset(self):
-        self.gradients = None
+        self.gradients = []
         self.approx_loader = None
         self.coreset = []
         self.weights = []
@@ -58,7 +57,7 @@ class main_trainer():
             # batch size 128, each batch has shape [128,1,78]
 
         # Update unlabel_loader
-        self.unlabel_loader =  DataLoader(unlabel_set, batch_size=self.batch_size, shuffle=True)
+        self.unlabel_loader =  DataLoader(unlabel_set, batch_size=self.batch_size, shuffle=True, drop_last=True)
         # Train the initial model over the label set
         Train_model_trainer.initial_train(ini_train_loader, self.train_model, self.device, self.dtype, criterion=nn.CrossEntropyLoss(), learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
@@ -101,7 +100,7 @@ class main_trainer():
                 # print("len(weights): ", len(self.weights))
 
                 # Update approx_loader
-                self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.coreset), batch_size=self.batch_size, shuffle=False)
+                self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.coreset), batch_size=self.batch_size, shuffle=False, drop_last=True)
                 # Get quadratic approximation
                 self.get_quadratic_approximation()
                 self.update_coreset = 0
@@ -118,7 +117,7 @@ class main_trainer():
                 print("delta: ", self.delta)
                 print("start_loss: ", self.start_loss)
                 self.check_approx_error()
-                if self.reset() == 1:
+                if self.update_coreset == 1:
                     if(self.update_times == self.update_times_limit):
                         return self.coreset, self.weights, self.train_model
                     else:
@@ -134,16 +133,20 @@ class main_trainer():
         true_loss = 0
         train_criterion = nn.CrossEntropyLoss()
 
+        count = 0 
         with torch.no_grad():
-            for approx_batch, (input, target) in enumerate(self.unlabel_loader):
+            for approx_batch, (input, target) in enumerate(self.approx_loader):
                 input = input.to(self.device, dtype=self.dtype)
 
                 pseudo_y = self.pseudo_labels[self.coreset[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]].to(self.device, dtype=self.dtype).squeeze().long()
-
+                if pseudo_y.size(0) != self.batch_size: 
+                    continue
                 output, _ = self.train_model(input)
                 loss = train_criterion(output, pseudo_y)
-                true_loss += loss.item()
+                true_loss += loss.item() * input.size(0)
+                count += input.size(0)
 
+        true_loss = true_loss / count
         self.train_model.train()
         approx_loss = torch.matmul(self.delta, self.gf) + self.start_loss
         approx_loss += 1/2 * torch.matmul(self.delta * self.ggf, self.delta)
@@ -154,36 +157,36 @@ class main_trainer():
         print("diff: ", loss_diff)
 
         #------------TODO--------------
-        rou = loss_diff / true_loss
+        ratio = loss_diff / true_loss
+        print("ratio: ", ratio)
         # thresh = self.check_thresh_factor * true_loss                          
         #------------TODO--------------
 
-        if rou > self.check_thresh_factor: 
+        if ratio > self.check_thresh_factor: 
             self.update_coreset = 1
             print("Need to reset coreset!")
             self.pseudo_labels= Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
-            self.reset = 1
         else:
             self.update_coreset = 0
-            self.reset = 0 
+            print("No need to reset coreset!")
             
 
     def train_coreset(self):
-        tmp_params = [p.clone() for p in self.train_model.parameters()]
-        gradient_approx_optimizer = Approx_optimizer.Adahessian(tmp_params)
+        # tmp_params = [p.clone() for p in self.train_model.parameters()]
+        gf_current = 0
+        gradient_approx_optimizer = Approx_optimizer.Adahessian(self.train_model.parameters())
         train_criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(self.train_model.parameters(), lr=self.lr)
         self.weights = torch.tensor(self.weights, dtype=self.dtype)
         for approx_batch, (input, target) in enumerate(self.approx_loader):
             optimizer.zero_grad()
             input = input.to(self.device, dtype=self.dtype)
-            # target = target.to(self.device, dtype=self.dtype)
             pseudo_y = self.pseudo_labels[self.coreset[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]].to(self.device, dtype=self.dtype).squeeze().long()
 
             self.train_model.train()
 
             weights = self.weights.clone().detach().to(device=self.device, dtype=self.dtype)
-            output = self.train_model(input)
+            output,_ = self.train_model(input)
 
             loss = train_criterion(output, pseudo_y)
 
@@ -192,18 +195,22 @@ class main_trainer():
             
             self.train_model.zero_grad()
             loss.backward(create_graph=True)
-            gf_current, _, _ = gradient_approx_optimizer.step(momentum=False)
-            self.delta = self.delta - self.lr * gf_current
-            
+            # if approx_batch == 0:
+            #     gf_current, _, _ = gradient_approx_optimizer.step(momentum=False)
+            #     self.delta = self.delta - self.lr * gf_current
+            # else: 
+            #     self.delta = self.delta - self.lr * gf_current 
             
             loss.backward()
             optimizer.step()
+        gf_current, _, _ = gradient_approx_optimizer.step(momentum=False)
+        self.delta = self.delta - self.lr * gf_current  
 
 
     def get_quadratic_approximation(self):
         train_criterion = nn.CrossEntropyLoss()
-        tmp_params = [p.clone() for p in self.train_model.parameters()]
-        gradient_approx_optimizer = Approx_optimizer.Adahessian(tmp_params)
+        # tmp_params = [p.clone() for p in self.train_model.parameters()]
+        gradient_approx_optimizer = Approx_optimizer.Adahessian(self.train_model.parameters())
         self.weights = torch.tensor(self.weights, dtype=self.dtype)
         count = 0
         for approx_batch, (input, target) in enumerate(self.approx_loader):
