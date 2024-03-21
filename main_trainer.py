@@ -36,12 +36,15 @@ class main_trainer():
         self.delta = 0 # Store delta
         self.start_loss = 0 # Store start loss
         self.check_thresh_factor = 0.1 # Threshold factor (SELF_TUNE!!!)
+        self.train_output = []
+        self.subsets = []
 
     def reset(self):
         self.gradients = []
         self.approx_loader = None
         self.coreset = []
         self.weights = []
+        self.subsets = []
         self.gf = 0
         self.ggf = 0
         self.ggf_moment = 0
@@ -91,13 +94,9 @@ class main_trainer():
                     sub_coreset = subset[sub_coreset]
                     self.coreset.extend(sub_coreset.tolist())
                     self.weights.extend(weights.tolist())
+                    self.subsets.extend(subset)
                     subset_count += 1
                 print("Greedy FL End!")
-                
-                # print("len(coreset): ", len(self.coreset))
-                # are_distinct = len(self.coreset) == len(set(self.coreset))
-                # print("whether distinctive? ", are_distinct)
-                # print("len(weights): ", len(self.weights))
 
                 # Update approx_loader
                 self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.coreset), batch_size=self.batch_size, shuffle=False, drop_last=True)
@@ -126,28 +125,62 @@ class main_trainer():
 
 # --------------------------------
 # Auxiliary functions        
+    def get_train_output(self):
+        self.train_model.eval()
+
+        self.train_output = []
+        # self.train_softmax = []
+
+        with torch.no_grad():
+            for _, (data, _) in enumerate(self.unlabel_loader):
+                data = data.to(self.device, dtype=self.dtype)
+
+                output,_ = self.train_model(data)
+
+                # Convert output to probabilities using softmax, then move to CPU and convert to numpy for storage
+                # softmax_output = torch.softmax(output, dim=1).cpu().numpy()
+
+                # Move output to CPU and convert to numpy for storage
+                output = output.cpu().numpy()
+
+                # Append the numpy arrays to the respective lists
+                for sample in output:
+                    self.train_output.append(sample)
+                # self.train_softmax.extend(softmax_output)
+        print("train output length: ", len(self.train_output))
+        self.train_model.train()
+
             
     def check_approx_error(self):
         # calculate true loss
-        self.train_model.eval()
-        true_loss = 0
-        train_criterion = nn.CrossEntropyLoss()
+        # self.train_model.eval()
+        # true_loss = 0
+        # train_criterion = nn.CrossEntropyLoss()
 
-        count = 0 
-        with torch.no_grad():
-            for approx_batch, (input, target) in enumerate(self.approx_loader):
-                input = input.to(self.device, dtype=self.dtype)
+        # count = 0 
+        # with torch.no_grad():
+        #     for approx_batch, (input, target) in enumerate(self.approx_loader):
+        #         input = input.to(self.device, dtype=self.dtype)
 
-                pseudo_y = self.pseudo_labels[self.coreset[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]].to(self.device, dtype=self.dtype).squeeze().long()
-                if pseudo_y.size(0) != self.batch_size: 
-                    continue
-                output, _ = self.train_model(input)
-                loss = train_criterion(output, pseudo_y)
-                true_loss += loss.item() * input.size(0)
-                count += input.size(0)
+        #         pseudo_y = self.pseudo_labels[self.coreset[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]].to(self.device, dtype=self.dtype).squeeze().long()
+        #         if pseudo_y.size(0) != self.batch_size: 
+        #             continue
+        #         output, _ = self.train_model(input)
+        #         loss = train_criterion(output, pseudo_y)
+        #         true_loss += loss.item() * input.size(0)
+        #         count += input.size(0)
 
-        true_loss = true_loss / count
-        self.train_model.train()
+        # true_loss = true_loss / count
+        self.get_train_output()
+        # selected_outputs = torch.stack([self.train_output[i] for i in self.subsets])
+        selected_outputs = torch.stack([torch.tensor(self.train_output[i], dtype=self.dtype) for i in self.subsets])
+        # selected_labels = torch.stack([self.pseudo_labels[i] for i in self.subsets])
+        selected_labels = torch.stack([torch.tensor(self.pseudo_labels[i], dtype=torch.long) for i in self.subsets])
+        
+        criterion = nn.CrossEntropyLoss()
+        true_loss = criterion(selected_outputs, selected_labels)
+        
+        # self.train_model.train()
         approx_loss = torch.matmul(self.delta, self.gf) + self.start_loss
         approx_loss += 1/2 * torch.matmul(self.delta * self.ggf, self.delta)
 
@@ -200,11 +233,11 @@ class main_trainer():
             #     self.delta = self.delta - self.lr * gf_current
             # else: 
             #     self.delta = self.delta - self.lr * gf_current 
-            
+            gf_current, _, _ = gradient_approx_optimizer.step(momentum=False)
+            self.delta = self.delta - self.lr * gf_current  
             loss.backward()
             optimizer.step()
-        gf_current, _, _ = gradient_approx_optimizer.step(momentum=False)
-        self.delta = self.delta - self.lr * gf_current  
+        
 
 
     def get_quadratic_approximation(self):
