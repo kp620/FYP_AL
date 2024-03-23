@@ -2,18 +2,22 @@ import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset, Subset
+import pickle
+
+
+
 
 # Load training data
-def load_training_data():
-    print("Loading training data...")
-    data_dic_path = "dataset"
-    x_train = pd.read_csv(f'{data_dic_path}/x_train_time_aware.csv').astype(float)
-    y_train = pd.read_csv(f'{data_dic_path}/y_train_time_aware.csv').astype(float)
+def load_data():
+    print("Loading data...")
+    data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
+    x_data = pd.read_csv(f'{data_dic_path}/x_data_iid.csv').astype(float)
+    y_data = pd.read_csv(f'{data_dic_path}/y_data_iid.csv').astype(float)
     print('Training Data Loaded!')
-    print('Total Length: ', len(x_train))
-    x_train = torch.from_numpy(x_train.values).unsqueeze(1)
-    y_train = torch.from_numpy(y_train.values)
-    full_dataset = TensorDataset(x_train, y_train)
+    print('Total Length: ', len(x_data))
+    x_data = torch.from_numpy(x_data.values).unsqueeze(1)
+    y_data = torch.from_numpy(y_data.values)
+    full_dataset = TensorDataset(x_data, y_data)
     return full_dataset
 
 # Select samples to label(manually)
@@ -27,6 +31,10 @@ def rs_acquire_label(full_dataset, rs_rate = 0.05):
     unlabel_set = Subset(full_dataset, list(not_chosen_indices))
     print("label set size: ", len(label_set))
     print("unlabel set size: ", len(unlabel_set))
+
+    with open('/vol/bitbucket/kp620/FYP/not_chosen_indices.pkl', 'wb') as f:
+        pickle.dump(not_chosen_indices, f)
+        print("not_chosen_indices saved!")
     return label_set, unlabel_set
 
 # Split the dataset into training and validation set
@@ -39,8 +47,7 @@ def train_val_split(label_set, batch_size):
 
 # Main
 def process(batch_size, rs_rate):
-    full_dataset = load_training_data()
+    full_dataset = load_data()
     label_set, unlabeled_set = rs_acquire_label(full_dataset, rs_rate)
-    # train_loader, val_loader = train_val_split(label_set, batch_size)
     train_loader = DataLoader(label_set, batch_size=batch_size, shuffle=True)
     return train_loader, unlabeled_set

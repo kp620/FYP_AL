@@ -9,20 +9,20 @@ from sklearn.preprocessing import MinMaxScaler
 
 ids17_url = "https://intrusion-detection.distrinet-research.be/WTMC2021/Dataset/dataset.zip"
 download_path = "dataset.zip"
-extract_to_directory = "dataset"
+extract_to_directory = "/vol/bitbucket/kp620/FYP/dataset"
 
 class FetchData():
     def __init__(self, label_mode, url, download_path, extract_to_directory):
         self.label_mode = label_mode
-        self.data = pd.read_csv(f'{self.ds_dic}/clean_data.csv')
-        self.data = self.data.astype(float)
-        self.length = len(self.data)
+        # self.data = pd.read_csv(f'{self.ds_dic}/clean_data.csv')
+        # self.data = self.data.astype(float)
+        # self.length = len(self.data)
         self.config = {
             "ids17_url": url,
             "download_path": download_path,
             "extract_to_directory": extract_to_directory
         }
-        self.ds_dic = self.config['extract_to_directory']
+        # self.ds_dic = self.config['extract_to_directory']
     
     def download_and_unzip_dataset(self):
         url = self.config['ids17_url']
@@ -115,6 +115,7 @@ class FetchData():
         processed_df.to_csv(f'{ds_dic}/clean_data.csv', index=False)
         print(f' Data Saved: clean_data.csv')
 
+
     def time_aware_split(self):
         print('Total number of data: ', self.length)
         print('Split and Scale Data')
@@ -150,17 +151,17 @@ class FetchData():
 
 FetchData_tool = FetchData(label_mode = "binary", url = ids17_url, download_path = download_path, extract_to_directory = extract_to_directory)
 
-if os.path.exists("dataset"):
+if os.path.exists(extract_to_directory):
     print("Dataset already exists!")
 else:
     FetchData_tool.download_and_unzip_dataset()
 
-if os.path.exists("dataset/clean_data.csv"):
-    print("Cleaned data already exists!")
-else:
-    FetchData_tool.prepare_data()
+# if os.path.exists(f"{extract_to_directory}/clean_data.csv"):
+#     print("Cleaned data already exists!")
+# else:
+#     FetchData_tool.prepare_data()
     
-if os.path.exists("dataset/x_train_time_aware.csv"):
-    print("Time aware split already done!")
-else:
-    FetchData_tool.time_aware_split()
+# if os.path.exists("dataset/x_train_time_aware.csv"):
+#     print("Time aware split already done!")
+# else:
+#     FetchData_tool.time_aware_split()

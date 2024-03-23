@@ -1,7 +1,7 @@
 import subprocess
 import os
 
-# 1. install pybind11
+# 1. pip install pybind11
 # 2. python setup.py build
 # 3. pip install .
 # 4. pip install "numpy<=1.21"
