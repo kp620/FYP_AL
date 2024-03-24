@@ -1,6 +1,6 @@
 # --------------------------------
 # Import area
-import Test_cuda, Train_model_trainer, Train_model, Data_wrapper, Gradient_model_trainer, Gradient_model, Facility_Location, Approx_optimizer, restnet_1d
+import Test_cuda, Train_model_trainer, Train_model, Data_wrapper, Gradient_model_trainer, Gradient_model, Facility_Location, Approx_optimizer, restnet_1d, Facility_Update
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -80,6 +80,7 @@ class main_trainer():
                 print("Update coreset!")
                 # Use the train model to acquire gradients
                 self.gradients = Train_model_trainer.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = nn.CrossEntropyLoss())
+                
                 # Select random subsets
                 subsets = self.select_random_set()
                 print("Greedy FL Start!")
@@ -93,7 +94,19 @@ class main_trainer():
                     else:
                         continue
                     # Facility location function
-                    sub_coreset, weights, _, _ = Facility_Location.facility_location_order(gradient_data, metric='euclidean', budget=10, weights=None, mode="dense", num_n=64)
+
+                    fl_labels = self.pseudo_labels[subset] - np.min(self.pseudo_labels[subset])
+          
+                    sub_coreset, weights= Facility_Update.get_orders_and_weights(
+                        15,
+                        gradient_data,
+                        "euclidean",
+                        y=fl_labels,
+                        equal_num=False,
+                        mode="sparse",
+                        num_n=128,
+                    )
+
                     sub_coreset = subset[sub_coreset]
                     self.coreset.extend(sub_coreset.tolist())
                     self.weights.extend(weights.tolist())
@@ -284,7 +297,7 @@ class main_trainer():
 
 caller = main_trainer()
 coreset , weights = caller.main_loop()
-print("len coreset: ", len(coreset))
-print("len weights: ", len(weights))
-np.save('/vol/bitbucket/kp620/FYP/coreset.npy', coreset)
-np.save('/vol/bitbucket/kp620/FYP/weights.npy', weights)
+# print("len coreset: ", len(coreset))
+# print("len weights: ", len(weights))
+# np.save('/vol/bitbucket/kp620/FYP/coreset.npy', coreset)
+# np.save('/vol/bitbucket/kp620/FYP/weights.npy', weights)
