@@ -5,7 +5,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, Subset, ConcatDataset
+import torch.nn.functional as F
 
 # --------------------------------
 # Main processing logic
@@ -29,7 +30,7 @@ class main_trainer():
         self.coreset = [] # Store coreset
         self.weights = [] # Store weights
         self.rs_rate = 0.05 # Percentage of the dataset to acuquire manual labelling
-        self.num_subsets = 4000 # Number of random subsets
+        self.num_subsets = 1500 # Number of random subsets
         self.subset_size = 0 # Size of each subset
         self.gf = 0 # Store gradient
         self.ggf = 0 # Store hutchinson trace
@@ -37,10 +38,9 @@ class main_trainer():
         self.delta = 0 # Store delta
         self.start_loss = 0 # Store start loss
         self.check_thresh_factor = 0.1 # Threshold factor (SELF_TUNE!!!)
-        self.train_output = []
         self.subsets = []
         self.gradient_approx_optimizer = Approx_optimizer.Adahessian(self.train_model.parameters())
-        self.final_coreset = []
+        self.final_coreset = None
         self.final_weights = []
 
     def reset(self):
@@ -56,14 +56,12 @@ class main_trainer():
 
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
     def initial_training(self):
-        # Load training data, acquire label and unlabel set using rs_rate
-        # Divide the label set into training and validation set
-        ini_train_loader, unlabel_set = Data_wrapper.process(batch_size=self.batch_size, rs_rate=self.rs_rate)
+        # Load training data, acquire label and unlabel set using rs_rate / us_rate
+        # ini_train_loader, unlabel_set = Data_wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate)
+        ini_train_loader, unlabel_set = Data_wrapper.process_us(self.train_model, self.device, self.dtype, self.batch_size, self.rs_rate)
 
-        # Update unlabel_loader
+        # Update unlabel_loader (Need to update in each iteration)
         self.unlabel_loader =  DataLoader(unlabel_set, batch_size=self.batch_size, shuffle=True, drop_last=True)
-        self.steps_per_epoch = np.ceil(len(self.unlabel_loader.dataset) / self.batch_size).astype(int)
-        self.reset_step = self.steps_per_epoch
         # Train the initial model over the label set
         Train_model_trainer.initial_train(ini_train_loader, self.train_model, self.device, self.dtype, criterion=nn.CrossEntropyLoss(), learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
@@ -95,23 +93,35 @@ class main_trainer():
                         continue
                     # Facility location function
 
-                    fl_labels = self.pseudo_labels[subset] - np.min(self.pseudo_labels[subset])
+                    fl_labels = self.pseudo_labels[subset] - torch.min(self.pseudo_labels[subset])
           
-                    sub_coreset, weights= Facility_Update.get_orders_and_weights(
-                        15,
+                    sub_coreset, sub_weights= Facility_Update.get_orders_and_weights(
+                        50,
                         gradient_data,
                         "euclidean",
-                        y=fl_labels,
+                        y=fl_labels.cpu().numpy(),
                         equal_num=False,
                         mode="sparse",
                         num_n=128,
                     )
 
-                    sub_coreset = subset[sub_coreset]
-                    self.coreset.extend(sub_coreset.tolist())
-                    self.weights.extend(weights.tolist())
+                    sub_coreset_index = subset[sub_coreset] # Get the indices of the coreset
+                    self.coreset.extend(sub_coreset_index.tolist()) # Add the coreset to the coreset list
+                    self.weights.extend(sub_weights.tolist()) # Add the weights to the weights list
                     self.subsets.extend(subset)
                     subset_count += 1
+
+                # update final coreset and weights
+                if self.final_coreset is None:
+                    # Directly assign the first dataset
+                    self.final_coreset = Subset(self.unlabel_loader.dataset, self.coreset)
+                else:
+                    # Concatenate additional datasets
+                    self.final_coreset = ConcatDataset([self.final_coreset, Subset(self.unlabel_loader.dataset, self.coreset)])
+                # self.final_coreset = ConcatDataset([self.final_coreset, Subset(self.unlabel_loader.dataset, self.coreset)])
+                for weight in self.weights:
+                    self.final_weights.append(weight)
+                    
                 print("Greedy FL End!")
 
                 # Update approx_loader
@@ -137,40 +147,24 @@ class main_trainer():
                 self.check_approx_error()
                 if self.update_coreset == 1:
                     if(self.update_times == self.update_times_limit):
-                        return self.final_coreset, self.final_weights
+                        print("TRAINING COMPLETED!")
+                        self.test_accuracy_with_weight()
+                        self.test_accuracy_without_weight()
                     else:
+                        # update unlabel_loader, remove coreset
+                        all_indices = set(range(len(self.unlabel_loader.dataset)))
+                        coreset_indices = set(self.coreset)
+                        remaining_indices = list(all_indices - coreset_indices)
+                        self.unlabel_loader = DataLoader(Subset(self.unlabel_loader.dataset, remaining_indices), batch_size=self.batch_size, shuffle=False, drop_last=True)
                         self.reset()
-        return self.final_coreset, self.final_weights
+        
 
 
 # --------------------------------
 # Auxiliary functions        
-    def get_train_output(self):
-        self.train_model.eval()
-
-        self.train_output = []
-        with torch.no_grad():
-            for _, (data, _) in enumerate(self.unlabel_loader):
-                data = data.to(self.device, dtype=self.dtype)
-
-                output,_ = self.train_model(data)
-                # Move output to CPU and convert to numpy for storage
-                output = output.cpu().numpy()
-
-                for sample in output:
-                    self.train_output.append(sample)
-        self.train_model.train()
-
             
     def check_approx_error(self):
-        # calculate true loss
-        # self.get_train_output()
-        # selected_outputs = torch.stack([torch.tensor(self.train_output[i], dtype=self.dtype) for i in self.subsets])
-        # selected_labels = torch.stack([torch.tensor(self.pseudo_labels[i], dtype=torch.long) for i in self.subsets])
-        
-        # criterion = nn.CrossEntropyLoss()
-        # true_loss = criterion(selected_outputs, selected_labels)
-        
+        # calculate true loss    
         true_loss = 0 
         count = 0 
         subset_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.subsets), batch_size=self.batch_size, shuffle=False, drop_last=True)
@@ -210,9 +204,7 @@ class main_trainer():
         if loss_diff > thresh: 
             self.update_coreset = 1
             print("Need to reset coreset!")
-            self.final_coreset.extend(self.coreset)
-            self.final_weights.extend(self.weights)
-            # self.pseudo_labels= Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
+            self.pseudo_labels= Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
         else:
             self.update_coreset = 0
             print("No need to reset coreset!")
@@ -262,14 +254,16 @@ class main_trainer():
         for approx_batch, (input, target) in enumerate(self.approx_loader):
             optimizer.zero_grad()
             input = input.to(self.device, dtype=self.dtype)
-            pseudo_y = self.pseudo_labels[self.coreset[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]].to(self.device, dtype=self.dtype).squeeze().long()
+            # pseudo_y = self.pseudo_labels[self.coreset[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]].to(self.device, dtype=self.dtype).squeeze().long()
+            target = target.to(self.device, dtype=self.dtype).squeeze().long()
 
             self.train_model.train()
 
             weights = self.weights.clone().detach().to(device=self.device, dtype=self.dtype)
             output,_ = self.train_model(input)
 
-            loss = train_criterion(output, pseudo_y)
+            # loss = train_criterion(output, pseudo_y)
+            loss = train_criterion(output, target)
 
             batch_weight = weights[0 + approx_batch * self.batch_size : self.batch_size + approx_batch * self.batch_size]
             loss = (loss * batch_weight).mean()
@@ -295,8 +289,119 @@ class main_trainer():
 
 
 
+    def test_accuracy_without_weight(self):
+        print("Testing accuracy without weight!")
+        unlabel_loader = self.unlabel_loader
+        coreset = self.final_coreset
+        weights = self.final_weights
+
+        coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=False, drop_last=True)
+        self.train_model.train()
+        self.train_model = self.train_model.to(device=self.device)
+        optimizer = optim.Adam(self.train_model.parameters(), lr=0.00001)
+        criterion = torch.nn.CrossEntropyLoss()
+        weights = torch.tensor(weights, dtype=self.dtype)
+        weights = weights.clone().detach().to(device=self.device, dtype=self.dtype)
+        # Training loop
+        num_epochs = 100
+        for epoch in range(num_epochs):
+            for t,(x,y) in enumerate(coreset_loader):
+                self.train_model.train()
+                x = x.to(device=self.device, dtype=self.dtype)
+                y = y.to(device=self.device, dtype=self.dtype).squeeze().long()
+                # batch_weight = weights[0 + t * 1200 : 1200 + t * 1200]
+                optimizer.zero_grad()
+                output, _ = self.train_model(x)
+                loss = criterion(output,y)
+                # loss = (loss * batch_weight).mean()
+                loss.backward()
+                optimizer.step()  
+            if epoch % 10 == 0:
+                print(f'Epoch {epoch+1}, Loss: {loss.item()}')
+        
+        self.train_model.eval()
+        self.train_model = self.train_model.to(device=self.device)
+        correct_predictions = 0
+        total_predictions = 0
+        # Disable gradient calculations
+        with torch.no_grad():
+            for t, (inputs, targets) in enumerate(unlabel_loader):
+                inputs = inputs.to(self.device, dtype=self.dtype)
+                targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
+                # Forward pass to get outputs
+                scores, _ = self.train_model(inputs)
+                # Calculate the loss
+                loss = criterion(scores, targets)
+                probabilities = F.softmax(output, dim=1)
+                _, pseudo_label = torch.max(probabilities, dim=1)
+                # Count correct predictions
+                correct_predictions += torch.sum(pseudo_label == targets.data).item()
+                total_predictions += targets.size(0)
+        # Calculate average loss and accuracy
+        test_accuracy = correct_predictions / total_predictions
+        print("correct predictions without weight: ", correct_predictions)
+        print("total_predictions without weight: ", total_predictions)
+        print(f'Test Accuracy without weight: {test_accuracy:.2f}')
+    
+
+
+    def test_accuracy_with_weight(self):
+        print("Testing accuracy with weight!")
+        unlabel_loader = self.unlabel_loader
+        coreset = self.final_coreset
+        weights = self.final_weights
+
+        coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=False, drop_last=True)
+        self.train_model.train()
+        self.train_model = self.train_model.to(device=self.device)
+        optimizer = optim.Adam(self.train_model.parameters(), lr=0.00001)
+        criterion = torch.nn.CrossEntropyLoss()
+        weights = torch.tensor(weights, dtype=self.dtype)
+        weights = weights.clone().detach().to(device=self.device, dtype=self.dtype)
+        # Training loop
+        num_epochs = 100
+        for epoch in range(num_epochs):
+            for t,(x,y) in enumerate(coreset_loader):
+                self.train_model.train()
+                x = x.to(device=self.device, dtype=self.dtype)
+                y = y.to(device=self.device, dtype=self.dtype).squeeze().long()
+                batch_weight = weights[0 + t * self.batch_size : self.batch_size + t * self.batch_size]
+                optimizer.zero_grad()
+                output, _ = self.train_model(x)
+                loss = criterion(output,y)
+                loss = (loss * batch_weight).mean()
+                loss.backward()
+                optimizer.step()  
+            if epoch % 10 == 0:
+                print(f'Epoch {epoch+1}, Loss: {loss.item()}')
+        
+        self.train_model.eval()
+        self.train_model = self.train_model.to(device=self.device)
+        correct_predictions = 0
+        total_predictions = 0
+        # Disable gradient calculations
+        with torch.no_grad():
+            for t, (inputs, targets) in enumerate(unlabel_loader):
+                inputs = inputs.to(self.device, dtype=self.dtype)
+                targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
+                # Forward pass to get outputs
+                scores, _ = self.train_model(inputs)
+                # Calculate the loss
+                loss = criterion(scores, targets)
+                probabilities = F.softmax(output, dim=1)
+                _, pseudo_label = torch.max(probabilities, dim=1)
+                # Count correct predictions
+                correct_predictions += torch.sum(pseudo_label == targets.data).item()
+                total_predictions += targets.size(0)
+        # Calculate average loss and accuracy
+        test_accuracy = correct_predictions / total_predictions
+        print("correct predictions with weight: ", correct_predictions)
+        print("total_predictions with weight: ", total_predictions)
+        print(f'Test Accuracy with weight: {test_accuracy:.2f}')
+    
+
 caller = main_trainer()
-coreset , weights = caller.main_loop()
+caller.main_loop()
 # print("len coreset: ", len(coreset))
 # print("len weights: ", len(weights))
 # np.save('/vol/bitbucket/kp620/FYP/coreset.npy', coreset)

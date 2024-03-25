@@ -8,16 +8,15 @@ from submodlib.helper import create_kernel
 def faciliy_location_order(
     c, X, y, metric, num_per_class, weights=None, mode="sparse", num_n=128
 ):
+    # Given a class c, a dataset X and labels y
+    # Filters X to include instances of only class c
     class_indices = []
     for i in range(len(y)):
         if y[i] == c:
             class_indices.append(i)
-    # Given a class c, a dataset X and labels y
-    # Filters X to include instances of only class c
     X = X[class_indices]
-    print("X: ", X.shape)
+    # print("X: ", X.shape)
     N = X.shape[0]
-
 
     if mode == "dense":
         num_n = None
@@ -138,55 +137,4 @@ def get_orders_and_weights(
     )  
 
     return order_mg, weights_mg
-
-
-# def select_random_set(gradients):
-#     total_number = len(gradients)
-#     print("total_number: ", total_number)
-#     indices = np.arange(total_number) 
-#     np.random.shuffle(indices)
-#     subset_size = int(np.ceil(total_number / 4000))
-#     print("subset_size: ", subset_size)
-#     subsets = [indices[i * subset_size:(i + 1) * subset_size] for i in range(4000)]
-#     return subsets
-
-# def get_coreset_weight(gradients, pseudo_labels):
-#     subsets = select_random_set(gradients)
-#     print("Greedy FL Start!")
-#     subset_count = 0
-#     for subset in subsets: 
-#         if subset_count % 500 == 0:
-#             print("Handling subset #", subset_count, " out of #", len(subsets))
-#         gradient_data = gradients[subset].squeeze()
-#         if gradient_data.size > 0:
-#             gradient_data = gradient_data.reshape(gradient_data.shape[0], -1)
-#         else:
-#             continue
-#         # Facility location function
-
-#         # length = len(gradients)
-#         # pseudo_labels = np.random.randint(0, 2, length)
-#         print("length of pseudo_labels", len(pseudo_labels))
-#         fl_labels = pseudo_labels[subset] - np.min(pseudo_labels[subset])
-#         print("fl_labels completed")
-        
-#         print("get order and weights start")
-#         subset, weights= get_orders_and_weights(
-#         15,
-#         gradient_data,
-#         "euclidean",
-#         y=fl_labels,
-#         equal_num=False,
-#         mode="sparse",
-#         num_n=128,
-#     )
-#         print(subset)
-#         print("len coreset", len(subset))
-#         # print(weights)
-#         print("len weights", len(weights))
-
-#     print("Greedy FL End!")
-#     return subset, weights
-
-
 

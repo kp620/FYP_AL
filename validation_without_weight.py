@@ -8,7 +8,6 @@ from torch.utils.data import DataLoader, Subset
 import pickle
 import pandas as pd
 from torch.utils.data import TensorDataset
-import math
 
 
 def load_data():
@@ -62,11 +61,11 @@ for epoch in range(num_epochs):
         model.train()
         x = x.to(device=device, dtype=dtype)
         y = y.to(device=device, dtype=dtype).squeeze().long()
-        batch_weight = weights[0 + t * 1200 : 1200 + t * 1200]
+        # batch_weight = weights[0 + t * 1200 : 1200 + t * 1200]
         optimizer.zero_grad()
         output, _ = model(x)
         loss = criterion(output,y)
-        loss = (loss * batch_weight).mean()
+        # loss = (loss * batch_weight).mean()
         loss.backward()
         optimizer.step()  
     if epoch % 10 == 0:
