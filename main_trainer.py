@@ -57,8 +57,8 @@ class main_trainer():
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
     def initial_training(self):
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
-        ini_train_loader, unlabel_set = Data_wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate)
-        # ini_train_loader, unlabel_set = Data_wrapper.process_us(self.train_model, self.device, self.dtype, self.batch_size, self.rs_rate)
+        # ini_train_loader, unlabel_set = Data_wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate)
+        ini_train_loader, unlabel_set = Data_wrapper.process_us(self.train_model, self.device, self.dtype, self.batch_size, self.rs_rate)
 
         # Update unlabel_loader (Need to update in each iteration)
         self.unlabel_loader =  DataLoader(unlabel_set, batch_size=self.batch_size, shuffle=True, drop_last=True)
@@ -96,7 +96,7 @@ class main_trainer():
                     fl_labels = self.pseudo_labels[subset] - torch.min(self.pseudo_labels[subset])
           
                     sub_coreset, sub_weights= Facility_Update.get_orders_and_weights(
-                        25,
+                        20,
                         gradient_data,
                         "euclidean",
                         y=fl_labels.cpu().numpy(),

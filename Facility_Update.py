@@ -10,12 +10,15 @@ def facility_location_order(
 ):
     # Given a class c, a dataset X and labels y
     # Filters X to include instances of only class c
-    class_indices = []
-    for i in range(len(y)):
-        if y[i] == c:
-            class_indices.append(i)
+    # class_indices = []
+    # for i in range(len(y)):
+    #     if y[i] == c:
+    #         class_indices.append(i)
+    # X = X[class_indices]
+    # # print("X: ", X.shape)
+    # N = X.shape[0]
+    class_indices = np.where(y == c)[0]
     X = X[class_indices]
-    # print("X: ", X.shape)
     N = X.shape[0]
 
     if mode == "dense":
@@ -35,8 +38,8 @@ def facility_location_order(
         show_progress=False,
     )
 
-    if greedyList == [(-1,-1)]:
-        return [-1], [-1]
+    # if greedyList == [(-1,-1)]:
+    #     return [0], [0]
 
     order = list(map(lambda x: x[0], greedyList))
     sz = list(map(lambda x: x[1], greedyList))
@@ -76,11 +79,17 @@ def get_orders_and_weights(
     num_n=128,
 ):
    # It calculates the number of instances to select per class, either equally dividing the budget B across classes or proportionally based on class frequencies.
+    # N = X.shape[0]
+    # if y is None:
+    #     y = np.zeros(N, dtype=np.int32)  # assign every point to the same class
+    # unique_values = set(y)
+    # classes = list(unique_values)
+    # C = len(classes)  # number of classes
     N = X.shape[0]
     if y is None:
         y = np.zeros(N, dtype=np.int32)  # assign every point to the same class
-    unique_values = set(y)
-    classes = list(unique_values)
+    classes = np.unique(y)
+    classes = classes.astype(np.int32).tolist()
     C = len(classes)  # number of classes
 
     if equal_num:
@@ -98,22 +107,22 @@ def get_orders_and_weights(
 
     # print(f"Greedy: selecting {num_per_class} elements")
 
-    # order_mg_all, cluster_sizes_all = zip(
-    #     *map(
-    #         # Collecting the selections and associated sizes (sz values) for each class.
-    #         lambda c: facility_location_order(
-    #             c[1], X, y, metric, num_per_class[c[0]], weights, mode, num_n
-    #         ),
-    #         enumerate(classes),
-    #     )
-    # )
     order_mg_all, cluster_sizes_all = zip(
-    *[
-        facility_location_order(c[1], X, y, metric, num_per_class[c[0]], weights, mode, num_n)
-        for c in enumerate(classes)
-        if facility_location_order(c[1], X, y, metric, num_per_class[c[0]], weights, mode, num_n) != ([-1], [-1])
-    ]
-)
+        *map(
+            # Collecting the selections and associated sizes (sz values) for each class.
+            lambda c: facility_location_order(
+                c[1], X, y, metric, num_per_class[c[0]], weights, mode, num_n
+            ),
+            enumerate(classes),
+        )
+    )
+#     order_mg_all, cluster_sizes_all = zip(
+#     *[
+#         facility_location_order(c[1], X, y, metric, num_per_class[c[0]], weights, mode, num_n)
+#         for c in enumerate(classes)
+#         if facility_location_order(c[1], X, y, metric, num_per_class[c[0]], weights, mode, num_n) != ([-1], [-1])
+#     ]
+# )
 
     
     
