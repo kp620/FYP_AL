@@ -5,7 +5,7 @@ from submodlib.functions.facilityLocation import FacilityLocationFunction
 from submodlib.helper import create_kernel
 
 # designed to operate on a single class of data points at a time.
-def faciliy_location_order(
+def facility_location_order(
     c, X, y, metric, num_per_class, weights=None, mode="sparse", num_n=128
 ):
     # Given a class c, a dataset X and labels y
@@ -32,7 +32,11 @@ def faciliy_location_order(
         stopIfZeroGain=False,
         stopIfNegativeGain=False,
         verbose=False,
+        show_progress=False,
     )
+
+    if greedyList == [(-1,-1)]:
+        return [-1], [-1]
 
     order = list(map(lambda x: x[0], greedyList))
     sz = list(map(lambda x: x[1], greedyList))
@@ -92,17 +96,26 @@ def get_orders_and_weights(
             np.ceil(np.divide([sum(y == i) for i in classes], N) * B)
         )
 
-    print(f"Greedy: selecting {num_per_class} elements")
+    # print(f"Greedy: selecting {num_per_class} elements")
 
+    # order_mg_all, cluster_sizes_all = zip(
+    #     *map(
+    #         # Collecting the selections and associated sizes (sz values) for each class.
+    #         lambda c: facility_location_order(
+    #             c[1], X, y, metric, num_per_class[c[0]], weights, mode, num_n
+    #         ),
+    #         enumerate(classes),
+    #     )
+    # )
     order_mg_all, cluster_sizes_all = zip(
-        *map(
-            # Collecting the selections and associated sizes (sz values) for each class.
-            lambda c: faciliy_location_order(
-                c[1], X, y, metric, num_per_class[c[0]], weights, mode, num_n
-            ),
-            enumerate(classes),
-        )
-    )
+    *[
+        facility_location_order(c[1], X, y, metric, num_per_class[c[0]], weights, mode, num_n)
+        for c in enumerate(classes)
+        if facility_location_order(c[1], X, y, metric, num_per_class[c[0]], weights, mode, num_n) != ([-1], [-1])
+    ]
+)
+
+    
     
     # Combines these per-class selections into a global ordering and weighting scheme that respects the overall budget B and desired balance across classes.
     order_mg, weights_mg = [], []

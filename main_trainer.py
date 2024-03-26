@@ -30,7 +30,7 @@ class main_trainer():
         self.coreset = [] # Store coreset
         self.weights = [] # Store weights
         self.rs_rate = 0.05 # Percentage of the dataset to acuquire manual labelling
-        self.num_subsets = 1500 # Number of random subsets
+        self.num_subsets = 2500 # Number of random subsets
         self.subset_size = 0 # Size of each subset
         self.gf = 0 # Store gradient
         self.ggf = 0 # Store hutchinson trace
@@ -57,8 +57,8 @@ class main_trainer():
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
     def initial_training(self):
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
-        # ini_train_loader, unlabel_set = Data_wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate)
-        ini_train_loader, unlabel_set = Data_wrapper.process_us(self.train_model, self.device, self.dtype, self.batch_size, self.rs_rate)
+        ini_train_loader, unlabel_set = Data_wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate)
+        # ini_train_loader, unlabel_set = Data_wrapper.process_us(self.train_model, self.device, self.dtype, self.batch_size, self.rs_rate)
 
         # Update unlabel_loader (Need to update in each iteration)
         self.unlabel_loader =  DataLoader(unlabel_set, batch_size=self.batch_size, shuffle=True, drop_last=True)
@@ -96,7 +96,7 @@ class main_trainer():
                     fl_labels = self.pseudo_labels[subset] - torch.min(self.pseudo_labels[subset])
           
                     sub_coreset, sub_weights= Facility_Update.get_orders_and_weights(
-                        50,
+                        25,
                         gradient_data,
                         "euclidean",
                         y=fl_labels.cpu().numpy(),
@@ -135,8 +135,8 @@ class main_trainer():
             if self.update_coreset == 0:
                 print("Not training coreset!")
                 # Train iteratively with the coreset when approx error is within the threshold
-                for i in range(10):
-                    if(i % 1 == 0):
+                for i in range(50):
+                    if(i % 10 == 0):
                         print("Training coreset #", i)
                     self.train_coreset()
                 print("gf: ", self.gf)
@@ -157,7 +157,6 @@ class main_trainer():
                         remaining_indices = list(all_indices - coreset_indices)
                         self.unlabel_loader = DataLoader(Subset(self.unlabel_loader.dataset, remaining_indices), batch_size=self.batch_size, shuffle=False, drop_last=True)
                         self.reset()
-        
 
 
 # --------------------------------
@@ -290,15 +289,16 @@ class main_trainer():
 
 
     def test_accuracy_without_weight(self):
+        test_model = restnet_1d.build_model()
         print("Testing accuracy without weight!")
         unlabel_loader = self.unlabel_loader
         coreset = self.final_coreset
         weights = self.final_weights
 
         coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=False, drop_last=True)
-        self.train_model.train()
-        self.train_model = self.train_model.to(device=self.device)
-        optimizer = optim.Adam(self.train_model.parameters(), lr=0.00001)
+        test_model.train()
+        test_model = test_model.to(device=self.device)
+        optimizer = optim.Adam(test_model.parameters(), lr=0.00001)
         criterion = torch.nn.CrossEntropyLoss()
         weights = torch.tensor(weights, dtype=self.dtype)
         weights = weights.clone().detach().to(device=self.device, dtype=self.dtype)
@@ -306,12 +306,11 @@ class main_trainer():
         num_epochs = 100
         for epoch in range(num_epochs):
             for t,(x,y) in enumerate(coreset_loader):
-                self.train_model.train()
                 x = x.to(device=self.device, dtype=self.dtype)
                 y = y.to(device=self.device, dtype=self.dtype).squeeze().long()
                 # batch_weight = weights[0 + t * 1200 : 1200 + t * 1200]
                 optimizer.zero_grad()
-                output, _ = self.train_model(x)
+                output, _ = test_model(x)
                 loss = criterion(output,y)
                 # loss = (loss * batch_weight).mean()
                 loss.backward()
@@ -319,8 +318,8 @@ class main_trainer():
             if epoch % 10 == 0:
                 print(f'Epoch {epoch+1}, Loss: {loss.item()}')
         
-        self.train_model.eval()
-        self.train_model = self.train_model.to(device=self.device)
+        test_model.eval()
+        test_model = test_model.to(device=self.device)
         correct_predictions = 0
         total_predictions = 0
         # Disable gradient calculations
@@ -329,7 +328,7 @@ class main_trainer():
                 inputs = inputs.to(self.device, dtype=self.dtype)
                 targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
                 # Forward pass to get outputs
-                scores, _ = self.train_model(inputs)
+                scores, _ = test_model(inputs)
                 # Calculate the loss
                 loss = criterion(scores, targets)
                 probabilities = F.softmax(output, dim=1)
@@ -346,15 +345,16 @@ class main_trainer():
 
 
     def test_accuracy_with_weight(self):
+        test_model = restnet_1d.build_model()
         print("Testing accuracy with weight!")
         unlabel_loader = self.unlabel_loader
         coreset = self.final_coreset
         weights = self.final_weights
 
         coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=False, drop_last=True)
-        self.train_model.train()
-        self.train_model = self.train_model.to(device=self.device)
-        optimizer = optim.Adam(self.train_model.parameters(), lr=0.00001)
+        test_model.train()
+        test_model = test_model.to(device=self.device)
+        optimizer = optim.Adam(test_model.parameters(), lr=0.00001)
         criterion = torch.nn.CrossEntropyLoss()
         weights = torch.tensor(weights, dtype=self.dtype)
         weights = weights.clone().detach().to(device=self.device, dtype=self.dtype)
@@ -362,12 +362,11 @@ class main_trainer():
         num_epochs = 100
         for epoch in range(num_epochs):
             for t,(x,y) in enumerate(coreset_loader):
-                self.train_model.train()
                 x = x.to(device=self.device, dtype=self.dtype)
                 y = y.to(device=self.device, dtype=self.dtype).squeeze().long()
                 batch_weight = weights[0 + t * self.batch_size : self.batch_size + t * self.batch_size]
                 optimizer.zero_grad()
-                output, _ = self.train_model(x)
+                output, _ = test_model(x)
                 loss = criterion(output,y)
                 loss = (loss * batch_weight).mean()
                 loss.backward()
@@ -375,8 +374,8 @@ class main_trainer():
             if epoch % 10 == 0:
                 print(f'Epoch {epoch+1}, Loss: {loss.item()}')
         
-        self.train_model.eval()
-        self.train_model = self.train_model.to(device=self.device)
+        test_model.eval()
+        test_model = test_model.to(device=self.device)
         correct_predictions = 0
         total_predictions = 0
         # Disable gradient calculations
@@ -385,7 +384,7 @@ class main_trainer():
                 inputs = inputs.to(self.device, dtype=self.dtype)
                 targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
                 # Forward pass to get outputs
-                scores, _ = self.train_model(inputs)
+                scores, _ = test_model(inputs)
                 # Calculate the loss
                 loss = criterion(scores, targets)
                 probabilities = F.softmax(output, dim=1)
