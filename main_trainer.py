@@ -8,6 +8,8 @@ import numpy as np
 from torch.utils.data import DataLoader, Subset, ConcatDataset
 import torch.nn.functional as F
 
+import subprocess
+
 # --------------------------------
 # Main processing logic
 
@@ -16,12 +18,12 @@ class main_trainer():
         self.device, self.dtype = Test_cuda.check_device() # Check if cuda is available
         # Model & Parameters
         self.train_model = restnet_1d.build_model() # Model used to train the data(M_0)
-        self.batch_size = 1024 # Batch size
+        self.batch_size = 128 # Batch size
         self.lr = 0.00001 # Learning rate
         # Counter
         self.update_coreset = 1 # Decide if coreset needs to be updated
         self.update_times = 0 # Number of times the coreset has been updated
-        self.update_times_limit = 5 # Maximum number of times the coreset can be updated (SELF_TUNE!!!)
+        self.update_times_limit = 4 # Maximum number of times the coreset can be updated (SELF_TUNE!!!)
         # Variables
         self.unlabel_loader = None # Set of unlabelled data
         self.approx_loader = None # Set of data used to approximate the loss
@@ -30,7 +32,7 @@ class main_trainer():
         self.coreset = [] # Store coreset
         self.weights = [] # Store weights
         self.rs_rate = 0.05 # Percentage of the dataset to acuquire manual labelling
-        self.num_subsets = 2500 # Number of random subsets
+        self.num_subsets = 3000 # Number of random subsets
         self.subset_size = 0 # Size of each subset
         self.gf = 0 # Store gradient
         self.ggf = 0 # Store hutchinson trace
@@ -42,6 +44,10 @@ class main_trainer():
         self.gradient_approx_optimizer = Approx_optimizer.Adahessian(self.train_model.parameters())
         self.final_coreset = None
         self.final_weights = []
+        self.train_output = []
+        self.train_softmax = []
+
+
 
     def reset(self):
         self.gradients = []
@@ -53,15 +59,17 @@ class main_trainer():
         self.ggf = 0
         self.ggf_moment = 0
         self.start_loss = 0
+        self.train_output = []
+        self.train_softmax = []
 
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
     def initial_training(self):
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
         ini_train_loader, unlabel_set = Data_wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate)
-        # ini_train_loader, unlabel_set = Data_wrapper.process_us(self.train_model, self.device, self.dtype, self.batch_size, self.rs_rate)
+        # ini_train_loader, unlabel_set = Data_wrapper.process_us(self.train_model, self.device, self.dtype, self.batch_size, self.rs_rate) 
 
         # Update unlabel_loader (Need to update in each iteration)
-        self.unlabel_loader =  DataLoader(unlabel_set, batch_size=self.batch_size, shuffle=True, drop_last=True)
+        self.unlabel_loader =  DataLoader(unlabel_set, batch_size=self.batch_size, shuffle=True, drop_last=False)
         # Train the initial model over the label set
         Train_model_trainer.initial_train(ini_train_loader, self.train_model, self.device, self.dtype, criterion=nn.CrossEntropyLoss(), learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
@@ -78,38 +86,11 @@ class main_trainer():
                 print("Update coreset!")
                 # Use the train model to acquire gradients
                 self.gradients = Train_model_trainer.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = nn.CrossEntropyLoss())
+                    # self.get_train_output()
+                    # self.gradients = self.train_softmax
                 
                 # Select random subsets
-                subsets = self.select_random_set()
-                print("Greedy FL Start!")
-                subset_count = 0
-                for subset in subsets: 
-                    if subset_count % 500 == 0:
-                        print("Handling subset #", subset_count, " out of #", len(subsets))
-                    gradient_data = self.gradients[subset].squeeze()
-                    if gradient_data.size > 0:
-                        gradient_data = gradient_data.reshape(gradient_data.shape[0], -1)
-                    else:
-                        continue
-                    # Facility location function
-
-                    fl_labels = self.pseudo_labels[subset] - torch.min(self.pseudo_labels[subset])
-          
-                    sub_coreset, sub_weights= Facility_Update.get_orders_and_weights(
-                        20,
-                        gradient_data,
-                        "euclidean",
-                        y=fl_labels.cpu().numpy(),
-                        equal_num=False,
-                        mode="sparse",
-                        num_n=128,
-                    )
-
-                    sub_coreset_index = subset[sub_coreset] # Get the indices of the coreset
-                    self.coreset.extend(sub_coreset_index.tolist()) # Add the coreset to the coreset list
-                    self.weights.extend(sub_weights.tolist()) # Add the weights to the weights list
-                    self.subsets.extend(subset)
-                    subset_count += 1
+                self.select_subset()
 
                 # update final coreset and weights
                 if self.final_coreset is None:
@@ -135,8 +116,8 @@ class main_trainer():
             if self.update_coreset == 0:
                 print("Not training coreset!")
                 # Train iteratively with the coreset when approx error is within the threshold
-                for i in range(50):
-                    if(i % 10 == 0):
+                for i in range(15):
+                    if(i % 5 == 0):
                         print("Training coreset #", i)
                     self.train_coreset()
                 print("gf: ", self.gf)
@@ -162,6 +143,30 @@ class main_trainer():
 # --------------------------------
 # Auxiliary functions        
             
+    def get_train_output(self):
+        self.train_model.eval()
+        self.train_output = []
+        self.train_softmax = []
+
+        with torch.no_grad():
+            for _, (data, _) in enumerate(self.unlabel_loader):
+                data = data.to(device=self.device, dtype=self.dtype)
+
+                output,_ = self.train_model(data)
+
+                # Convert output to probabilities using softmax, then move to CPU and convert to numpy for storage
+                softmax_output = torch.softmax(output, dim=1).cpu().numpy()
+
+                # Move output to CPU and convert to numpy for storage
+                output = output.cpu().numpy()
+
+                # Append the numpy arrays to the respective lists
+                for sample in output:
+                    self.train_output.append(sample)
+                self.train_softmax.extend(softmax_output)
+        self.train_softmax = np.array(self.train_softmax)
+        self.train_model.train()
+
     def check_approx_error(self):
         # calculate true loss    
         true_loss = 0 
@@ -203,7 +208,7 @@ class main_trainer():
         if loss_diff > thresh: 
             self.update_coreset = 1
             print("Need to reset coreset!")
-            self.pseudo_labels= Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
+            # self.pseudo_labels= Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
         else:
             self.update_coreset = 0
             print("No need to reset coreset!")
@@ -269,22 +274,66 @@ class main_trainer():
             
             self.train_model.zero_grad()
             loss.backward(create_graph=True)
-            gf_current, _, _ = self.gradient_approx_optimizer.step(momentum=False)
-            self.delta -= self.lr * gf_current  
+            # gf_current, _, _ = self.gradient_approx_optimizer.step(momentum=False)
+            # self.delta -= self.lr * gf_current  
             loss.backward()
             optimizer.step()
     
 
 
     def select_random_set(self):
-        total_number = len(self.gradients)
-        print("total_number: ", total_number)
-        indices = np.arange(total_number) 
-        np.random.shuffle(indices)
-        self.subset_size = int(np.ceil(total_number / self.num_subsets))
-        print("subset_size: ", self.subset_size)
-        subsets = [indices[i * self.subset_size:(i + 1) * self.subset_size] for i in range(self.num_subsets)]
-        return subsets
+        train_indices = np.arange(len(self.gradients))
+        # command = ["echo", f"train indices length: {len(train_indices)}"]
+        # subprocess.run(command)
+        indices = []
+        for c in np.unique(self.pseudo_labels):
+            class_indices = np.intersect1d(np.where(self.pseudo_labels == c)[0], train_indices)
+            indices_per_class = np.random.choice(class_indices, size=int(np.ceil(0.001 * len(class_indices))), replace=False)
+            indices.append(indices_per_class)
+        indices = np.concatenate(indices)
+
+        return indices
+
+    
+    def select_subset(self):
+        subsets = []
+        for _ in range(5):
+            # get a random subset of the data
+            random_subset = self.select_random_set()
+            subsets.append(random_subset)
+
+        print("Greedy FL Start!")
+        subset_count = 0
+        for subset in subsets: 
+            if subset_count % 50 == 0:
+                print("Handling subset #", subset_count, " out of #", len(subsets))
+            gradient_data = self.gradients[subset]
+            # if np.shape(gradient_data)[-1] == 2:
+            #      gradient_data -= np.eye(2)[self.pseudo_labels[subset]] 
+            # gradient_data = self.gradients[subset].squeeze()
+            if gradient_data.size <= 0:
+                continue
+                    
+            # Facility location function
+            fl_labels = self.pseudo_labels[subset] - torch.min(self.pseudo_labels[subset])
+
+            sub_coreset, sub_weights= Facility_Update.get_orders_and_weights(
+                128,
+                gradient_data,
+                "euclidean",
+                y=fl_labels.cpu().numpy(),
+                equal_num=False,
+                mode="sparse",
+                num_n=128,
+            )
+            
+            sub_weights = sub_weights / sub_weights.sum()  # Normalize the weights
+
+            sub_coreset_index = subset[sub_coreset] # Get the indices of the coreset
+            self.coreset.extend(sub_coreset_index.tolist()) # Add the coreset to the coreset list
+            self.weights.extend(sub_weights.tolist()) # Add the weights to the weights list
+            self.subsets.extend(subset)
+            subset_count += 1
 
 
 
@@ -293,12 +342,13 @@ class main_trainer():
         print("Testing accuracy without weight!")
         unlabel_loader = self.unlabel_loader
         coreset = self.final_coreset
+        print("len coreset: ", len(coreset))
         weights = self.final_weights
 
         coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=False, drop_last=True)
         test_model.train()
         test_model = test_model.to(device=self.device)
-        optimizer = optim.Adam(test_model.parameters(), lr=0.00001)
+        optimizer = optim.Adam(test_model.parameters(), lr=self.lr)
         criterion = torch.nn.CrossEntropyLoss()
         weights = torch.tensor(weights, dtype=self.dtype)
         weights = weights.clone().detach().to(device=self.device, dtype=self.dtype)
@@ -349,12 +399,13 @@ class main_trainer():
         print("Testing accuracy with weight!")
         unlabel_loader = self.unlabel_loader
         coreset = self.final_coreset
+        print("len coreset: ", len(coreset))
         weights = self.final_weights
 
         coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=False, drop_last=True)
         test_model.train()
         test_model = test_model.to(device=self.device)
-        optimizer = optim.Adam(test_model.parameters(), lr=0.00001)
+        optimizer = optim.Adam(test_model.parameters(), lr=self.lr)
         criterion = torch.nn.CrossEntropyLoss()
         weights = torch.tensor(weights, dtype=self.dtype)
         weights = weights.clone().detach().to(device=self.device, dtype=self.dtype)
@@ -397,11 +448,93 @@ class main_trainer():
         print("correct predictions with weight: ", correct_predictions)
         print("total_predictions with weight: ", total_predictions)
         print(f'Test Accuracy with weight: {test_accuracy:.2f}')
+
+
+
+    def train_epoch(self, epoch):
+        # 两个模型，一个负责label一个负责coreset?
+        self.initial_training() # 在initial training就update delta?
+
+
+        steps_per_epoch = np.ceil(int(len(self.unlabel_loader) * 0.1) / self.batch_size).astype(int)
+        reset_step = steps_per_epoch
+
+        self.train_model.train()
+
+        for training_step in range(steps_per_epoch * epoch, steps_per_epoch * (epoch + 1)):
+            if((training_step > reset_step) and ((training_step - reset_step) % 2 == 0)): 
+                self.check_approx_error()
+            
+            if training_step == reset_step:
+                self.select_random_set()
+
+                # update train loader and weights 
+                # TODO
+
+                train_iter = iter(self.train_loader)
+                self.get_quadratic_approximation()
+
+            elif training_step == 0: 
+                train_iter = iter(self.unlabel_loader)
+
+            batch = next(train_iter)
+
+        
+
+
+
+        return 1
     
 
+
+    def coreset_without_approx(self):
+        self.initial_training()
+        update_times = 0
+        while update_times < 100:
+            command = ["echo", f"update #{update_times}"]
+            subprocess.run(command)
+            self.gradients = []
+            self.coreset = []
+            self.weights = []
+            self.subsets = []
+            self.get_train_output()
+            self.gradients = self.train_softmax
+            # self.gradients = Train_model_trainer.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = nn.CrossEntropyLoss())
+            # self.select_subset()
+            # update final coreset and weights
+            if self.final_coreset is None:
+                # Directly assign the first dataset
+                self.final_coreset = Subset(self.unlabel_loader.dataset, self.coreset)
+            else:
+                # Concatenate additional datasets
+                self.final_coreset = ConcatDataset([self.final_coreset, Subset(self.unlabel_loader.dataset, self.coreset)])
+            for weight in self.weights:
+                self.final_weights.append(weight)
+            self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.coreset), batch_size=self.batch_size, shuffle=False, drop_last=True)
+            for i in range(3):
+                if(i % 1 == 0):
+                    print("Training coreset #", i)
+                self.train_coreset()
+            # self.train_coreset()
+            all_indices = set(range(len(self.unlabel_loader.dataset)))
+            coreset_indices = set(self.coreset)
+            remaining_indices = list(all_indices - coreset_indices)
+            self.unlabel_loader = DataLoader(Subset(self.unlabel_loader.dataset, remaining_indices), batch_size=self.batch_size, shuffle=False, drop_last=True)
+            self.pseudo_labels= Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
+            update_times += 1
+
+        print("TRAINING COMPLETED!")
+        self.test_accuracy_with_weight()
+        self.test_accuracy_without_weight()
+        
 caller = main_trainer()
-caller.main_loop()
+caller.coreset_without_approx()
+# caller.main_loop()
 # print("len coreset: ", len(coreset))
 # print("len weights: ", len(weights))
 # np.save('/vol/bitbucket/kp620/FYP/coreset.npy', coreset)
 # np.save('/vol/bitbucket/kp620/FYP/weights.npy', weights)
+
+
+
+

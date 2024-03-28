@@ -58,7 +58,7 @@ def uncertainty_sampling(model, x_data, y_data, selection_rate, device = device,
 model = restnet_1d.build_model()
 x_data, y_data = load_data()
 
-x_selected, y_selected, x_not_selected, y_not_selected = uncertainty_sampling(model, x_data, y_data, 0.15)
+x_selected, y_selected, x_not_selected, y_not_selected = uncertainty_sampling(model, x_data, y_data, 0.005)
 print("x_selected length: ", len(x_selected))
 
 train_loader = DataLoader(TensorDataset(x_selected, y_selected), batch_size=1200, shuffle=True)
