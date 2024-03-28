@@ -87,9 +87,9 @@ def train_epoch(model, train_loader, device, dtype, criterion, learning_rate):
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     # Training loop
-    num_epochs = 10
+    num_epochs = 3
     for epoch in range(num_epochs):
-        for t,(x,y) in enumerate(train_loader):
+        for t,(x, y, index) in enumerate(train_loader):
             model.train()
             x = x.to(device=device, dtype=dtype)
             y = y.to(device=device, dtype=dtype).squeeze().long()
@@ -106,7 +106,7 @@ def gradient_train_epoch(model, unlabel_loader, pseudo_labels, device, dtype, ba
     model = model.to(device=device)
     model.eval()  # Ensure the model is in training mode
 
-    for index, (x, y) in enumerate(unlabel_loader):
+    for index, (x, y, _) in enumerate(unlabel_loader):
         x = x.to(device=device, dtype=dtype)
         pseudo_y = pseudo_labels[index * batch_size: index * batch_size + batch_size].to(device=device, dtype=dtype).squeeze().long()
 
@@ -136,7 +136,7 @@ def psuedo_labeling(model, devc, dtype, loader):
     # correct_pseudo_y = 0
     # total_correct_pseudo_y = 0
     with torch.no_grad():  # We don't need to compute gradients
-        for x, real_y in loader:
+        for x, real_y, _ in loader:
             x = x.to(devc, dtype=dtype)  # Move data to the appropriate device
             output, _ = model(x)  # Get model predictions
             # Get the predicted classes (for classification tasks)

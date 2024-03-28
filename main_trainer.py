@@ -65,15 +65,55 @@ class main_trainer():
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
     def initial_training(self):
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
-        ini_train_loader, unlabel_set = Data_wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate)
-        # ini_train_loader, unlabel_set = Data_wrapper.process_us(self.train_model, self.device, self.dtype, self.batch_size, self.rs_rate) 
+        ini_train_loader, self.unlabel_loader = Data_wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate)
+        # ini_train_loader, self.unlabel_loader = Data_wrapper.process_us(self.train_model, self.device, self.dtype, self.batch_size, self.rs_rate) 
 
-        # Update unlabel_loader (Need to update in each iteration)
-        self.unlabel_loader =  DataLoader(unlabel_set, batch_size=self.batch_size, shuffle=True, drop_last=False)
         # Train the initial model over the label set
         Train_model_trainer.initial_train(ini_train_loader, self.train_model, self.device, self.dtype, criterion=nn.CrossEntropyLoss(), learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
         self.pseudo_labels = Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
+
+
+    def coreset_without_approx(self):
+        self.initial_training()
+        update_times = 0
+        while update_times < 100:
+            command = ["echo", f"update #{update_times}"]
+            subprocess.run(command)
+            self.gradients = []
+            self.coreset = []
+            self.weights = []
+            self.subsets = []
+            self.get_train_output()
+            self.gradients = self.train_softmax
+            # self.gradients = Train_model_trainer.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = nn.CrossEntropyLoss())
+            self.select_subset()
+            # update final coreset and weights
+            if self.final_coreset is None:
+                # Directly assign the first dataset
+                self.final_coreset = Subset(self.unlabel_loader.dataset, self.coreset)
+            else:
+                # Concatenate additional datasets
+                self.final_coreset = ConcatDataset([self.final_coreset, Subset(self.unlabel_loader.dataset, self.coreset)])
+            for weight in self.weights:
+                self.final_weights.append(weight)
+            self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.coreset), batch_size=self.batch_size, shuffle=False, drop_last=True)
+            for i in range(3):
+                if(i % 1 == 0):
+                    print("Training coreset #", i)
+                self.train_coreset()
+            # self.train_coreset()
+            all_indices = set(range(len(self.unlabel_loader.dataset)))
+            coreset_indices = set(self.coreset)
+            remaining_indices = list(all_indices - coreset_indices)
+            self.unlabel_loader = DataLoader(Subset(self.unlabel_loader.dataset, remaining_indices), batch_size=self.batch_size, shuffle=False, drop_last=True)
+            self.pseudo_labels= Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
+            update_times += 1
+
+        print("TRAINING COMPLETED!")
+        self.test_accuracy_with_weight()
+        self.test_accuracy_without_weight()
+
 
     def main_loop(self):
         # Get unlabel_loader & pseudo_labels
@@ -451,84 +491,15 @@ class main_trainer():
 
 
 
-    def train_epoch(self, epoch):
-        # 两个模型，一个负责label一个负责coreset?
-        self.initial_training() # 在initial training就update delta?
-
-
-        steps_per_epoch = np.ceil(int(len(self.unlabel_loader) * 0.1) / self.batch_size).astype(int)
-        reset_step = steps_per_epoch
-
-        self.train_model.train()
-
-        for training_step in range(steps_per_epoch * epoch, steps_per_epoch * (epoch + 1)):
-            if((training_step > reset_step) and ((training_step - reset_step) % 2 == 0)): 
-                self.check_approx_error()
-            
-            if training_step == reset_step:
-                self.select_random_set()
-
-                # update train loader and weights 
-                # TODO
-
-                train_iter = iter(self.train_loader)
-                self.get_quadratic_approximation()
-
-            elif training_step == 0: 
-                train_iter = iter(self.unlabel_loader)
-
-            batch = next(train_iter)
-
-        
-
-
-
-        return 1
+   
     
 
 
-    def coreset_without_approx(self):
-        self.initial_training()
-        update_times = 0
-        while update_times < 100:
-            command = ["echo", f"update #{update_times}"]
-            subprocess.run(command)
-            self.gradients = []
-            self.coreset = []
-            self.weights = []
-            self.subsets = []
-            self.get_train_output()
-            self.gradients = self.train_softmax
-            # self.gradients = Train_model_trainer.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = nn.CrossEntropyLoss())
-            # self.select_subset()
-            # update final coreset and weights
-            if self.final_coreset is None:
-                # Directly assign the first dataset
-                self.final_coreset = Subset(self.unlabel_loader.dataset, self.coreset)
-            else:
-                # Concatenate additional datasets
-                self.final_coreset = ConcatDataset([self.final_coreset, Subset(self.unlabel_loader.dataset, self.coreset)])
-            for weight in self.weights:
-                self.final_weights.append(weight)
-            self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.coreset), batch_size=self.batch_size, shuffle=False, drop_last=True)
-            for i in range(3):
-                if(i % 1 == 0):
-                    print("Training coreset #", i)
-                self.train_coreset()
-            # self.train_coreset()
-            all_indices = set(range(len(self.unlabel_loader.dataset)))
-            coreset_indices = set(self.coreset)
-            remaining_indices = list(all_indices - coreset_indices)
-            self.unlabel_loader = DataLoader(Subset(self.unlabel_loader.dataset, remaining_indices), batch_size=self.batch_size, shuffle=False, drop_last=True)
-            self.pseudo_labels= Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
-            update_times += 1
-
-        print("TRAINING COMPLETED!")
-        self.test_accuracy_with_weight()
-        self.test_accuracy_without_weight()
+    
         
 caller = main_trainer()
-caller.coreset_without_approx()
+caller.train_epoch(0)
+# caller.coreset_without_approx()
 # caller.main_loop()
 # print("len coreset: ", len(coreset))
 # print("len weights: ", len(weights))

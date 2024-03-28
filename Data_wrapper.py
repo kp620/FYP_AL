@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset, Subset
 import pickle
-
+import IndexedDataset
 
 
 
@@ -32,9 +32,6 @@ def rs_acquire_label(full_dataset, rs_rate = 0.05):
     print("label set size: ", len(label_set))
     print("unlabel set size: ", len(unlabel_set))
 
-    # with open('/vol/bitbucket/kp620/FYP/not_chosen_indices.pkl', 'wb') as f:
-    #     pickle.dump(not_chosen_indices, f)
-    #     print("not_chosen_indices saved!")
     return label_set, unlabel_set
 
 def us_acquire_label(model, device, dtype, batch_size, full_dataset, us_rate = 0.05):
@@ -74,19 +71,25 @@ def us_acquire_label(model, device, dtype, batch_size, full_dataset, us_rate = 0
 def train_val_split(label_set, batch_size):
     n_val = int(len(label_set) * 0.1)
     train_set, val_set = torch.utils.data.random_split(label_set, [len(label_set) - n_val, n_val])
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True)
+    train_loader = DataLoader(IndexedDataset.IndexedDataset(train_set), batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(IndexedDataset.IndexedDataset(val_set), batch_size=batch_size, shuffle=True)
+    # train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
+    # val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True)
     return train_loader, val_loader
 
 # Main
 def process_rs(batch_size, rs_rate):
     full_dataset = load_data()
     label_set, unlabeled_set = rs_acquire_label(full_dataset, rs_rate)
-    train_loader = DataLoader(label_set, batch_size=batch_size, shuffle=True)
-    return train_loader, unlabeled_set
+    train_loader = DataLoader(IndexedDataset.IndexedDataset(label_set), batch_size=batch_size, shuffle=True)    
+    unlabel_loader = DataLoader(IndexedDataset.IndexedDataset(unlabeled_set), batch_size=batch_size, shuffle=True)
+    # train_loader = DataLoader(label_set, batch_size=batch_size, shuffle=True)
+    return train_loader, unlabel_loader
 
 def process_us(model, device, dtype, batch_size, rs_rate):
     full_dataset = load_data()
     label_set, unlabeled_set = us_acquire_label(model, device, dtype, batch_size, full_dataset, rs_rate)
-    train_loader = DataLoader(label_set, batch_size=batch_size, shuffle=True)
-    return train_loader, unlabeled_set
+    train_loader = DataLoader(IndexedDataset.IndexedDataset(label_set), batch_size=batch_size, shuffle=True)  
+    unlabel_loader = DataLoader(IndexedDataset.IndexedDataset(unlabeled_set), batch_size=batch_size, shuffle=True)
+    # train_loader = DataLoader(label_set, batch_size=batch_size, shuffle=True)
+    return train_loader, unlabel_loader
