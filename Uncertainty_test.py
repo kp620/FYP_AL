@@ -20,7 +20,7 @@ def load_data():
     y_data = torch.from_numpy(y_data.values)
     return x_data, y_data
 
-def uncertainty_sampling(model, x_data, y_data, selection_rate, device = device, dtype = dtype, batch_size = 1200):
+def uncertainty_sampling(model, x_data, y_data, selection_rate, device = device, dtype = dtype, batch_size = 128):
     # Make sure the model is in evaluation mode
     model.eval()
     model = model.to(device=device)
@@ -58,11 +58,11 @@ def uncertainty_sampling(model, x_data, y_data, selection_rate, device = device,
 model = restnet_1d.build_model()
 x_data, y_data = load_data()
 
-x_selected, y_selected, x_not_selected, y_not_selected = uncertainty_sampling(model, x_data, y_data, 0.005)
+x_selected, y_selected, x_not_selected, y_not_selected = uncertainty_sampling(model, x_data, y_data, 0.0016)
 print("x_selected length: ", len(x_selected))
 
-train_loader = DataLoader(TensorDataset(x_selected, y_selected), batch_size=1200, shuffle=True)
-test_loader = DataLoader(TensorDataset(x_not_selected, y_not_selected), batch_size=1200, shuffle=True)
+train_loader = DataLoader(TensorDataset(x_selected, y_selected), batch_size=128, shuffle=True)
+test_loader = DataLoader(TensorDataset(x_not_selected, y_not_selected), batch_size=128, shuffle=True)
 
 
 # # Train the model with coreset 

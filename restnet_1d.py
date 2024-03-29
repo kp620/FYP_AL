@@ -87,7 +87,7 @@ def train_epoch(model, train_loader, device, dtype, criterion, learning_rate):
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     # Training loop
-    num_epochs = 3
+    num_epochs = 50
     for epoch in range(num_epochs):
         for t,(x, y, index) in enumerate(train_loader):
             model.train()

@@ -393,7 +393,7 @@ class main_trainer():
         weights = torch.tensor(weights, dtype=self.dtype)
         weights = weights.clone().detach().to(device=self.device, dtype=self.dtype)
         # Training loop
-        num_epochs = 100
+        num_epochs = 50
         for epoch in range(num_epochs):
             for t,(x,y) in enumerate(coreset_loader):
                 x = x.to(device=self.device, dtype=self.dtype)
@@ -450,7 +450,7 @@ class main_trainer():
         weights = torch.tensor(weights, dtype=self.dtype)
         weights = weights.clone().detach().to(device=self.device, dtype=self.dtype)
         # Training loop
-        num_epochs = 100
+        num_epochs = 50
         for epoch in range(num_epochs):
             for t,(x,y) in enumerate(coreset_loader):
                 x = x.to(device=self.device, dtype=self.dtype)

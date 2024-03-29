@@ -1,6 +1,6 @@
 # --------------------------------
 # Import area
-import Test_cuda, Train_model_trainer, Train_model, Data_wrapper, Gradient_model_trainer, Gradient_model, Facility_Location, Approx_optimizer, restnet_1d, Facility_Update
+import Test_cuda, Train_model_trainer, Train_model, Data_wrapper, Gradient_model_trainer, Gradient_model, Facility_Location, Approx_optimizer, restnet_1d, Facility_Update, IndexedDataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -52,11 +52,6 @@ class new_trainer():
         self.train_weights = []
         self.final_coreset = None
         self.final_weights = []
-
-    # def reset(self):
-    #     self.coreset_index = []
-    #     self.weights = []
-    #     self.subsets = []    
     
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
     def initial_training(self):
@@ -71,17 +66,18 @@ class new_trainer():
 
  
     def train_epoch(self, epoch):
-        self.steps_per_epoch = np.ceil(int(len(self.unlabel_loader) * 0.1)).astype(int)
+        self.steps_per_epoch = np.ceil(int(len(self.unlabel_loader) * 0.1) / self.batch_size).astype(int)
         print("steps per epoch: ", self.steps_per_epoch)
         self.reset_step = self.steps_per_epoch
         self.train_model.train()
 
         for training_step in range(self.steps_per_epoch * epoch, self.steps_per_epoch * (epoch + 1)):
-            if((training_step > self.reset_step) and ((training_step - self.reset_step) % 1 == 0)): 
+            if((training_step > self.reset_step) and ((training_step - self.reset_step) % 3 == 0)): 
                 self.check_approx_error(training_step)
             
             if training_step == self.reset_step or training_step == 0:
                 self.gradients = Train_model_trainer.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = self.criterion)
+                print("len gradients: ", len(self.gradients))
                 self.select_subset()
                 self.update_train_loader_and_weights()
 
@@ -110,12 +106,15 @@ class new_trainer():
             self.forward_and_backward(data, target, data_idx)
     
     def main_train(self, epoch):
-        # 两个模型，一个负责label一个负责coreset?
         self.initial_training() # 在initial training就update delta?
 
         for e in range(epoch):
             print("Epoch: ", e)
             self.train_epoch(e)
+        
+        print("Training complete!")
+        self.test_accuracy_without_weight()
+        self.test_accuracy_with_weight()
 
 
 # --------------------------------
@@ -145,6 +144,7 @@ class new_trainer():
         true_loss = 0 
         count = 0 
         subset_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.subsets), batch_size=self.batch_size, shuffle=False, drop_last=True)
+        print("len subset_loader: ", len(Subset(self.unlabel_loader.dataset, self.subsets)))
 
         self.train_model.eval()
         for approx_batch, (input, target, idx) in enumerate(subset_loader):
@@ -182,7 +182,9 @@ class new_trainer():
             all_indices = set(range(len(self.unlabel_loader.dataset)))
             coreset_indices = set(self.coreset_index)
             remaining_indices = list(all_indices - coreset_indices)
-            self.unlabel_loader = DataLoader(Subset(self.unlabel_loader.dataset, remaining_indices), batch_size=self.batch_size, shuffle=False, drop_last=True)
+            unlabel_set = self.unlabel_loader.dataset.dataset
+            unlabel_set = Subset(unlabel_set, remaining_indices)
+            self.unlabel_loader = DataLoader(IndexedDataset.IndexedDataset(unlabel_set), batch_size=self.batch_size, shuffle=False, drop_last=False)
             self.pseudo_labels = Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
             
     
@@ -191,8 +193,10 @@ class new_trainer():
         self.approx_loader = DataLoader(
             Subset(self.unlabel_loader.dataset, indices=self.coreset_index),
             batch_size=self.batch_size,
-            shuffle=True
+            shuffle=True,
+            drop_last=True
         )
+        print("len approx_loader: ", len(Subset(self.unlabel_loader.dataset, indices=self.coreset_index)))
 
         self.start_loss = 0 
         count = 0 
@@ -234,9 +238,10 @@ class new_trainer():
 
     def update_train_loader_and_weights(self):
         self.coreset_loader = DataLoader(
-            Subset(self.unlabel_loader.dataset, self.coreset_index),
+            Subset(self.unlabel_loader.dataset, indices = self.coreset_index),
             batch_size=self.batch_size,
             shuffle=True,
+            drop_last=True
         )
         self.train_weights = np.zeros(len(self.unlabel_loader.dataset))
         self.weights = self.weights / np.sum(self.weights) * len(self.coreset_index)
@@ -294,7 +299,111 @@ class new_trainer():
             self.subsets.extend(subset)
             subset_count += 1
 
+    def test_accuracy_without_weight(self):
+        test_model = restnet_1d.build_model()
+        optimizer = optim.Adam(test_model.parameters(), lr=self.lr)
+        print("Testing accuracy without weight!")
+        unlabel_loader = self.unlabel_loader
+        coreset = self.final_coreset
+        print("len coreset: ", len(coreset))
+        weights = self.final_weights
 
+        coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=True, drop_last=True)
+        test_model.train()
+        test_model = test_model.to(device=self.device)
 
+        # Training loop
+        num_epochs = 100
+        for epoch in range(num_epochs):
+            for t,(x,y,idx) in enumerate(coreset_loader):
+                x = x.to(device=self.device, dtype=self.dtype)
+                y = y.to(device=self.device, dtype=self.dtype).squeeze().long()
+                optimizer.zero_grad()
+                output, _ = test_model(x)
+                loss = self.criterion(output,y)
+                loss.backward()
+                optimizer.step()  
+            if epoch % 10 == 0:
+                print(f'Epoch {epoch+1}, Loss: {loss.item()}')
+        
+        test_model.eval()
+        test_model = test_model.to(device=self.device)
+        correct_predictions = 0
+        total_predictions = 0
+        # Disable gradient calculations
+        with torch.no_grad():
+            for t, (inputs, targets, idx) in enumerate(unlabel_loader):
+                inputs = inputs.to(self.device, dtype=self.dtype)
+                targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
+                # Forward pass to get outputs
+                scores, _ = test_model(inputs)
+                # Calculate the loss
+                loss = self.criterion(scores, targets)
+                probabilities = F.softmax(output, dim=1)
+                _, pseudo_label = torch.max(probabilities, dim=1)
+                # Count correct predictions
+                correct_predictions += torch.sum(pseudo_label == targets.data).item()
+                total_predictions += targets.size(0)
+        # Calculate average loss and accuracy
+        test_accuracy = correct_predictions / total_predictions
+        print("correct predictions without weight: ", correct_predictions)
+        print("total_predictions without weight: ", total_predictions)
+        print(f'Test Accuracy without weight: {test_accuracy:.2f}')
+    
+    def test_accuracy_with_weight(self):
+        test_model = restnet_1d.build_model()
+        print("Testing accuracy with weight!")
+        unlabel_loader = self.unlabel_loader
+        coreset = self.final_coreset
+        print("len coreset: ", len(coreset))
+        weights = self.final_weights
+
+        coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=True, drop_last=True)
+        test_model.train()
+        test_model = test_model.to(device=self.device)
+        optimizer = optim.Adam(test_model.parameters(), lr=self.lr)
+        criterion = torch.nn.CrossEntropyLoss()
+        weights = torch.tensor(weights, dtype=self.dtype)
+        weights = weights.clone().detach().to(device=self.device, dtype=self.dtype)
+        # Training loop
+        num_epochs = 100
+        for epoch in range(num_epochs):
+            for t,(x,y) in enumerate(coreset_loader):
+                x = x.to(device=self.device, dtype=self.dtype)
+                y = y.to(device=self.device, dtype=self.dtype).squeeze().long()
+                batch_weight = weights[0 + t * self.batch_size : self.batch_size + t * self.batch_size]
+                optimizer.zero_grad()
+                output, _ = test_model(x)
+                loss = criterion(output,y)
+                loss = (loss * batch_weight).mean()
+                loss.backward()
+                optimizer.step()  
+            if epoch % 10 == 0:
+                print(f'Epoch {epoch+1}, Loss: {loss.item()}')
+        
+        test_model.eval()
+        test_model = test_model.to(device=self.device)
+        correct_predictions = 0
+        total_predictions = 0
+        # Disable gradient calculations
+        with torch.no_grad():
+            for t, (inputs, targets) in enumerate(unlabel_loader):
+                inputs = inputs.to(self.device, dtype=self.dtype)
+                targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
+                # Forward pass to get outputs
+                scores, _ = test_model(inputs)
+                # Calculate the loss
+                loss = criterion(scores, targets)
+                probabilities = F.softmax(output, dim=1)
+                _, pseudo_label = torch.max(probabilities, dim=1)
+                # Count correct predictions
+                correct_predictions += torch.sum(pseudo_label == targets.data).item()
+                total_predictions += targets.size(0)
+        # Calculate average loss and accuracy
+        test_accuracy = correct_predictions / total_predictions
+        print("correct predictions with weight: ", correct_predictions)
+        print("total_predictions with weight: ", total_predictions)
+        print(f'Test Accuracy with weight: {test_accuracy:.2f}')
+    
 caller = new_trainer()
-caller.main_train(2)
+caller.main_train(5)
