@@ -68,7 +68,12 @@ def combine_dataframes(dfs):
 
 def label_data(data):
     original_labels = data['Label'].copy()
-    data["Label"] = data["Label"].apply(lambda x: 0 if x == "BENIGN" else 1)
+    unique_labels = data['Label'].unique().tolist()
+    if 'BENIGN' in unique_labels:
+        unique_labels.remove('BENIGN')
+    label_mapping = {label: index + 1 for index, label in enumerate(unique_labels)}
+    label_mapping['BENIGN'] = 0
+    data['Label'] = data['Label'].map(label_mapping)
     return data, original_labels
 
 def process_data(df):
@@ -92,7 +97,7 @@ def prepare_data():
     nRow, nCol = processed_df.shape
     print(f'Processed data has {nRow} rows and {nCol} columns')
     processed_df, original_labels = label_data(processed_df)
-    processed_df.to_csv(f'{ds_dic}/clean_data.csv', index=False)
+    processed_df.to_csv(f'{ds_dic}/clean_data_multiclass.csv', index=False)
     original_labels.to_csv(f'{ds_dic}/original_labels.csv', index=False)
     print(f' Data Saved: clean_data.csv and original_labels.csv')
 
@@ -111,7 +116,7 @@ def split_data(split_type):
     """
     #split_type = config["split_type"]
     ds_dic = config['extract_to_directory']
-    data = pd.read_csv(f'{ds_dic}/clean_data.csv')
+    data = pd.read_csv(f'{ds_dic}/clean_data_multiclass.csv')
     original_labels = pd.read_csv(f'{ds_dic}/original_labels.csv')
     data = data.astype(float)
     print('Split and Scale Data')
@@ -121,10 +126,11 @@ def split_data(split_type):
        x_data.replace([np.inf, -np.inf], np.nan, inplace=True)
        x_data = np.nan_to_num(x_data)
        scaler = MinMaxScaler().fit(x_data)
+       x_data = scaler.transform(x_data)
        x_data = pd.DataFrame(x_data)
        y_data = pd.DataFrame(y_data)
-       x_data.to_csv(f'{ds_dic}/x_data_iid.csv', index=False)
-       y_data.to_csv(f'{ds_dic}/y_data_iid.csv', index=False)
+       x_data.to_csv(f'{ds_dic}/x_data_iid_multiclass.csv', index=False)
+       y_data.to_csv(f'{ds_dic}/y_data_iid_multiclass.csv', index=False)
     elif split_type == "time-aware":
        print('Start Time Aware Split')
        time_aware = config["time-aware"]

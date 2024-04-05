@@ -1,5 +1,5 @@
 import torch
-import Test_cuda, restnet_1d
+import Test_cuda, restnet_1d_binary
 import pandas as pd
 from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
@@ -55,10 +55,11 @@ def uncertainty_sampling(model, x_data, y_data, selection_rate, device = device,
     return x_selected, y_selected, x_not_selected, y_not_selected
 
 
-model = restnet_1d.build_model()
+model = restnet_1d_binary.build_model()
+model.to(device=device)
 x_data, y_data = load_data()
 
-x_selected, y_selected, x_not_selected, y_not_selected = uncertainty_sampling(model, x_data, y_data, 0.0016)
+x_selected, y_selected, x_not_selected, y_not_selected = uncertainty_sampling(model, x_data, y_data, 0.015)
 print("x_selected length: ", len(x_selected))
 
 train_loader = DataLoader(TensorDataset(x_selected, y_selected), batch_size=128, shuffle=True)

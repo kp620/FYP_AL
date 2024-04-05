@@ -66,8 +66,8 @@ def ResNet18_1D(num_classes=2):
 
 def explain_model():
     print("Building train model...")
-    model = ResNet18_1D(num_classes=2)
-    print(model)
+    model = ResNet18_1D(num_classes=15)
+    # print(model)
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Total number of parameters is: ", params)
     return model

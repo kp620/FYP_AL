@@ -1,6 +1,6 @@
 # --------------------------------
 # Import area
-import Test_cuda, Train_model_trainer, Train_model, Data_wrapper, Gradient_model_trainer, Gradient_model, Facility_Location, Approx_optimizer, restnet_1d, Facility_Update
+import Test_cuda, Train_model_trainer_binary, Train_model, Data_wrapper_binary, Gradient_model_trainer, Gradient_model, Facility_Location, Approx_optimizer, restnet_1d_binary, Facility_Update
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -17,7 +17,7 @@ class main_trainer():
     def __init__(self) -> None:
         self.device, self.dtype = Test_cuda.check_device() # Check if cuda is available
         # Model & Parameters
-        self.train_model = restnet_1d.build_model() # Model used to train the data(M_0)
+        self.train_model = restnet_1d_binary.build_model() # Model used to train the data(M_0)
         self.batch_size = 128 # Batch size
         self.lr = 0.00001 # Learning rate
         # Counter
@@ -65,13 +65,13 @@ class main_trainer():
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
     def initial_training(self):
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
-        ini_train_loader, self.unlabel_loader = Data_wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate)
+        ini_train_loader, self.unlabel_loader = Data_wrapper_binary.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate)
         # ini_train_loader, self.unlabel_loader = Data_wrapper.process_us(self.train_model, self.device, self.dtype, self.batch_size, self.rs_rate) 
 
         # Train the initial model over the label set
-        Train_model_trainer.initial_train(ini_train_loader, self.train_model, self.device, self.dtype, criterion=nn.CrossEntropyLoss(), learning_rate=self.lr)
+        Train_model_trainer_binary.initial_train(ini_train_loader, self.train_model, self.device, self.dtype, criterion=nn.CrossEntropyLoss(), learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
-        self.pseudo_labels = Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
+        self.pseudo_labels = Train_model_trainer_binary.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
 
 
     def coreset_without_approx(self):
@@ -107,7 +107,7 @@ class main_trainer():
             coreset_indices = set(self.coreset)
             remaining_indices = list(all_indices - coreset_indices)
             self.unlabel_loader = DataLoader(Subset(self.unlabel_loader.dataset, remaining_indices), batch_size=self.batch_size, shuffle=False, drop_last=True)
-            self.pseudo_labels= Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
+            self.pseudo_labels= Train_model_trainer_binary.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
             update_times += 1
 
         print("TRAINING COMPLETED!")
@@ -125,7 +125,7 @@ class main_trainer():
             if self.update_coreset == 1:
                 print("Update coreset!")
                 # Use the train model to acquire gradients
-                self.gradients = Train_model_trainer.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = nn.CrossEntropyLoss())
+                self.gradients = Train_model_trainer_binary.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = nn.CrossEntropyLoss())
                     # self.get_train_output()
                     # self.gradients = self.train_softmax
                 
@@ -378,7 +378,7 @@ class main_trainer():
 
 
     def test_accuracy_without_weight(self):
-        test_model = restnet_1d.build_model()
+        test_model = restnet_1d_binary.build_model()
         print("Testing accuracy without weight!")
         unlabel_loader = self.unlabel_loader
         coreset = self.final_coreset
@@ -418,9 +418,9 @@ class main_trainer():
                 inputs = inputs.to(self.device, dtype=self.dtype)
                 targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
                 # Forward pass to get outputs
-                scores, _ = test_model(inputs)
+                output, _ = test_model(inputs)
                 # Calculate the loss
-                loss = criterion(scores, targets)
+                loss = criterion(output, targets)
                 probabilities = F.softmax(output, dim=1)
                 _, pseudo_label = torch.max(probabilities, dim=1)
                 # Count correct predictions
@@ -435,7 +435,7 @@ class main_trainer():
 
 
     def test_accuracy_with_weight(self):
-        test_model = restnet_1d.build_model()
+        test_model = restnet_1d_binary.build_model()
         print("Testing accuracy with weight!")
         unlabel_loader = self.unlabel_loader
         coreset = self.final_coreset
@@ -475,9 +475,9 @@ class main_trainer():
                 inputs = inputs.to(self.device, dtype=self.dtype)
                 targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
                 # Forward pass to get outputs
-                scores, _ = test_model(inputs)
+                output, _ = test_model(inputs)
                 # Calculate the loss
-                loss = criterion(scores, targets)
+                loss = criterion(output, targets)
                 probabilities = F.softmax(output, dim=1)
                 _, pseudo_label = torch.max(probabilities, dim=1)
                 # Count correct predictions
