@@ -1,12 +1,13 @@
 # --------------------------------
 # Import area
-import Test_cuda, Train_model_trainer_binary, Data_wrapper_binary, Approx_optimizer, restnet_1d_binary, Facility_Update, IndexedDataset
+import Test_cuda, Train_model_trainer_binary, Data_wrapper_binary_TA, Approx_optimizer, restnet_1d_binary, Facility_Update, IndexedDataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from torch.utils.data import DataLoader, Subset, ConcatDataset
+from torch.utils.data import DataLoader, Subset, ConcatDataset, TensorDataset
 import torch.nn.functional as F
+import pandas as pd
 
 import subprocess
 
@@ -32,7 +33,7 @@ class new_trainer():
         self.train_iter = iter
         
         # Variables
-        self.rs_rate = 0.005
+        self.rs_rate = 0.05
         self.gradients = [] # Gradients of the unlabel set
         self.pseudo_labels = [] # Pseudo labels of the unlabel set
         self.unlabel_loader = DataLoader # Unlabelled dataset
@@ -56,7 +57,7 @@ class new_trainer():
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
     def initial_training(self):
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
-        ini_train_loader, self.unlabel_loader = Data_wrapper_binary.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate)
+        ini_train_loader, self.unlabel_loader = Data_wrapper_binary_TA.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate)
         # ini_train_loader, self.unlabel_loader = Data_wrapper.process_us(self.train_model, self.device, self.dtype, self.batch_size, self.rs_rate) 
 
         # Train the initial model over the label set
@@ -72,7 +73,7 @@ class new_trainer():
         self.train_model.train()
 
         for training_step in range(self.steps_per_epoch * epoch, self.steps_per_epoch * (epoch + 1)):
-            if((training_step > self.reset_step) and ((training_step - self.reset_step) % 3 == 0)): 
+            if((training_step > self.reset_step) and ((training_step - self.reset_step) % 2 == 0)): 
                 print("checking approx error at step: ", training_step)
                 self.check_approx_error(training_step)
             
@@ -339,6 +340,16 @@ class new_trainer():
                 optimizer.step()  
             if epoch % 10 == 0:
                 print(f'Epoch {epoch+1}, Loss: {loss.item()}')
+
+
+        print("Loading data...")
+        data_dic_path = "/vol/bitbucket/kp620/FYP/dataset/time-aware-binary"
+        x_data = pd.read_csv(f'{data_dic_path}/x_test_time_aware.csv').astype(float)
+        y_data = pd.read_csv(f'{data_dic_path}/y_test_time_aware.csv').astype(float)
+        x_data = torch.from_numpy(x_data.values).unsqueeze(1)
+        y_data = torch.from_numpy(y_data.values)
+        full_dataset = TensorDataset(x_data, y_data)
+        test_loader = DataLoader(IndexedDataset.IndexedDataset(full_dataset), batch_size=self.batch_size, shuffle=True, drop_last=True)
         
         test_model.eval()
         test_model = test_model.to(device=self.device)
@@ -346,7 +357,7 @@ class new_trainer():
         total_predictions = 0
         # Disable gradient calculations
         with torch.no_grad():
-            for t, (inputs, targets, idx) in enumerate(unlabel_loader):
+            for t, (inputs, targets, idx) in enumerate(test_loader):
                 inputs = inputs.to(self.device, dtype=self.dtype)
                 targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
                 # Forward pass to get outputs
@@ -399,6 +410,15 @@ class new_trainer():
                 optimizer.step()  
             if epoch % 10 == 0:
                 print(f'Epoch {epoch+1}, Loss: {loss.item()}')
+
+        print("Loading data...")
+        data_dic_path = "/vol/bitbucket/kp620/FYP/dataset/time-aware-binary"
+        x_data = pd.read_csv(f'{data_dic_path}/x_test_time_aware.csv').astype(float)
+        y_data = pd.read_csv(f'{data_dic_path}/y_test_time_aware.csv').astype(float)
+        x_data = torch.from_numpy(x_data.values).unsqueeze(1)
+        y_data = torch.from_numpy(y_data.values)
+        full_dataset = TensorDataset(x_data, y_data)
+        test_loader = DataLoader(IndexedDataset.IndexedDataset(full_dataset), batch_size=self.batch_size, shuffle=True, drop_last=True)
         
         test_model.eval()
         test_model = test_model.to(device=self.device)
@@ -406,7 +426,7 @@ class new_trainer():
         total_predictions = 0
         # Disable gradient calculations
         with torch.no_grad():
-            for t, (inputs, targets, _) in enumerate(unlabel_loader):
+            for t, (inputs, targets, _) in enumerate(test_loader):
                 inputs = inputs.to(self.device, dtype=self.dtype)
                 targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
                 # Forward pass to get outputs

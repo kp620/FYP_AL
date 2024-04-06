@@ -1,6 +1,6 @@
 # --------------------------------
 # Import area
-import Test_cuda, Train_model_trainer_multiclass, Train_model, Data_wrapper_multiclass, Approx_optimizer, restnet_1d_multiclass, Facility_Update, IndexedDataset
+import Test_cuda, Train_model_trainer_multiclass, Data_wrapper_multiclass, Approx_optimizer, restnet_1d_multiclass, Facility_Update, IndexedDataset
 import torch
 import torch.nn as nn
 import torch.optim as optim

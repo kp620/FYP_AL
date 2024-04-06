@@ -12,8 +12,8 @@ device, dtype = Test_cuda.check_device()
 def load_data():
     print("Loading data...")
     data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
-    x_data = pd.read_csv(f'{data_dic_path}/x_data_iid.csv').astype(float)
-    y_data = pd.read_csv(f'{data_dic_path}/y_data_iid.csv').astype(float)
+    x_data = pd.read_csv(f'{data_dic_path}/x_data_iid_binary.csv').astype(float)
+    y_data = pd.read_csv(f'{data_dic_path}/y_data_iid_binary.csv').astype(float)
     print('Training Data Loaded!')
     print('Total Length: ', len(x_data))
     x_data = torch.from_numpy(x_data.values).unsqueeze(1)

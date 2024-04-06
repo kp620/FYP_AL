@@ -128,7 +128,7 @@ def split_data(split_type):
        y_data.to_csv(f'{ds_dic}/y_data_iid_binary.csv', index=False)
     elif split_type == "time-aware":
        print('Start Time Aware Split')
-       time_aware = config["time-aware"]
+       time_aware = 693702
        train_data = data[:time_aware]
        train_original_labels = original_labels[:time_aware]
        y_train, x_train = train_data["Label"], train_data.drop('Label', axis=1)
