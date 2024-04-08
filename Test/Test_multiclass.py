@@ -100,9 +100,18 @@ def eval_model(model, test_loader, device, dtype, criterion):
             probabilities = F.softmax(scores, dim=1)
             _, pseudo_label = torch.max(probabilities, dim=1)
 
-            # Count correct predictions
-            correct_predictions += torch.sum(pseudo_label == targets.data).item()
-            total_predictions += targets.size(0)
+            # # Count correct predictions
+            # correct_predictions += torch.sum(pseudo_label == targets.data).item()
+            # total_predictions += targets.size(0)
+
+            # Filter for instances where the real class is 1
+            class_1_indices = (targets == 1)
+            filtered_targets = targets[class_1_indices]
+            filtered_pseudo_label = pseudo_label[class_1_indices]
+            
+            # Count correct predictions for class 1
+            correct_predictions += torch.sum(filtered_pseudo_label == filtered_targets.data).item()
+            total_predictions += filtered_targets.size(0)
     # Calculate average loss and accuracy
     test_accuracy = correct_predictions / total_predictions
     print("correct predictions: ", correct_predictions)
@@ -165,5 +174,5 @@ def US_Model(us_model, x_data, y_data, x_train, y_train):
     eval_model(rs_model, test_loader, device, dtype, criterion)
 
 
-US_Model(us_model, x_data, y_data, x_train, y_train)
-RS_Model(rs_model, x_data, y_data, x_train, y_train)
+RS_Model(us_model, x_data, y_data, x_train, y_train)
+US_Model(rs_model, x_data, y_data, x_train, y_train)

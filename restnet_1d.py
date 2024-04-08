@@ -6,7 +6,6 @@ import numpy as np
 
 class BasicBlock1D(nn.Module):
     expansion = 1
-
     def __init__(self, in_channels, out_channels, stride=1):
         super(BasicBlock1D, self).__init__()
         self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -32,7 +31,6 @@ class ResNet1D(nn.Module):
     def __init__(self, block, num_blocks, num_classes=2):
         super(ResNet1D, self).__init__()
         self.in_channels = 64
-
         self.conv1 = nn.Conv1d(1, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm1d(64)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
@@ -64,16 +62,20 @@ class ResNet1D(nn.Module):
 def ResNet18_1D(num_classes=2):
     return ResNet1D(BasicBlock1D, [2, 2, 2, 2], num_classes=num_classes)
 
-def explain_model():
-    print("Building train model...")
-    model = ResNet18_1D(num_classes=15)
+def explain_model(class_type):
+    if class_type == "binary":
+        print("Building binary model...")
+        model = ResNet18_1D(num_classes=2)
+    elif class_type == "multiclass":
+        print("Building multiclass model...")
+        model = ResNet18_1D(num_classes=15)
     # print(model)
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Total number of parameters is: ", params)
     return model
 
-def build_model():
-    model = explain_model()
+def build_model(class_type):
+    model = explain_model(class_type)
     # kaiming initialization
     if isinstance(model, torch.nn.Linear) or isinstance(model, torch.nn.Conv1d):
         torch.nn.init.kaiming_uniform_(model.weight)
@@ -81,93 +83,54 @@ def build_model():
             torch.nn.init.zeros_(model.bias)
     return model
 
-def train_epoch(model, train_loader, device, dtype, criterion, learning_rate):
+def train(model, train_loader, device, dtype, criterion, learning_rate):
     model.train()
     model = model.to(device=device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    # Training loop
     num_epochs = 50
     for epoch in range(num_epochs):
-        for t,(x, y, index) in enumerate(train_loader):
+        for batch,(input, target, idx) in enumerate(train_loader):
             model.train()
-            x = x.to(device=device, dtype=dtype)
-            y = y.to(device=device, dtype=dtype).squeeze().long()
+            input = input.to(device=device, dtype=dtype)
+            target = target.to(device=device, dtype=dtype).squeeze().long()
             optimizer.zero_grad()
-            output, _ = model(x)
-            loss = criterion(output,y)
+            output, _ = model(input)
+            loss = criterion(output,target)
             loss.backward()
             optimizer.step()
-            if t % 1000 == 0:
-                print(f'Epoch {epoch+1}, Loss: {loss.item()}')
+        if epoch % 10 == 0:
+            print("Epoch: ", epoch, "Loss: ", loss.item())
 
-def gradient_train_epoch(model, unlabel_loader, pseudo_labels, device, dtype, batch_size, criterion):
+def gradient_train(model, unlabel_loader, pseudo_labels, device, dtype, batch_size, criterion):
     gradients = []
     model = model.to(device=device)
     model.eval()  # Ensure the model is in training mode
-
-    for index, (x, y, _) in enumerate(unlabel_loader):
-        x = x.to(device=device, dtype=dtype)
-        pseudo_y = pseudo_labels[index * batch_size: index * batch_size + batch_size].to(device=device, dtype=dtype).squeeze().long()
-
-        # Forward pass
-        outputs, pre_linear_output = model(x)
-
+    for batch, (input, target, idx) in enumerate(unlabel_loader):
+        input = input.to(device=device, dtype=dtype)
+        pseudo_y = pseudo_labels[idx].to(device=device, dtype=dtype).squeeze().long()
+        output, pre_linear_output = model(input)
         # Enable gradient retention for non-leaf tensor
         pre_linear_output.retain_grad()
-
-        loss = criterion(outputs, pseudo_y)
-
+        loss = criterion(output, pseudo_y)
         # Backward pass to compute gradients
         loss.backward()
-
         if pre_linear_output.grad is not None:
-            # Convert the gradient to a NumPy array and store it
             gradients.append(pre_linear_output.grad.cpu().detach().numpy())
         else:
             gradients.append(None)
-
     gradients = np.concatenate(gradients, axis=0)
     model.train()
     return gradients
 
 def psuedo_labeling(model, devc, dtype, loader):
     pseudo_labels = []
-    # correct_pseudo_y = 0
-    # total_correct_pseudo_y = 0
-    with torch.no_grad():  # We don't need to compute gradients
-        for x, real_y, _ in loader:
-            x = x.to(devc, dtype=dtype)  # Move data to the appropriate device
-            output, _ = model(x)  # Get model predictions
-            # Get the predicted classes (for classification tasks)
+    with torch.no_grad():
+        for input, target, idx in loader:
+            input = input.to(devc, dtype=dtype)
+            output, _ = model(input)
             probabilities = F.softmax(output, dim=1)
             _, pseudo_label = torch.max(probabilities, dim=1)
-            # correct_pseudo_y += torch.sum(pred_y == real_y.data.to(devc, dtype=dtype).squeeze()).item()
-            # total_correct_pseudo_y += real_y.size(0)
-            pseudo_labels.append(pseudo_label.cpu())  # Store the predictions
-
-    # pseudo_accuracy = correct_pseudo_y / total_correct_pseudo_y
-    # print("correct pseudo labels: ", correct_pseudo_y)
-    # print("total pseudo labels: ", total_correct_pseudo_y)
-    # print("pseudo labelling accuracy: ", pseudo_accuracy)
-
-    # Concatenate the list of labels into a single tensor
+            pseudo_labels.append(pseudo_label.cpu())
     pseudo_labels = torch.cat(pseudo_labels)
     return pseudo_labels
-
-
-def test_output_shape():
-    # Initialize your ResNet model for 1D input
-    model = ResNet18_1D(num_classes=2)
-    # Ensure the model is in evaluation mode
-    model.eval()
-    # Create a test input tensor
-    # Shape: [batch_size, channels, length] -> [1, 1, 78]
-    input_tensor = torch.randn(128, 1, 78)
-    # Forward the input tensor through the model
-    with torch.no_grad():  # Disables gradient tracking
-        output = model(input_tensor)
-    # Print the shape of the output tensor
-    print(output.shape)
-
 

@@ -1,14 +1,15 @@
 # --------------------------------
 # Import area
-import Test_cuda, Train_model_trainer_multiclass, Data_wrapper_multiclass_TA, Approx_optimizer, restnet_1d_multiclass, Facility_Update, IndexedDataset
+import Data_wrapper_binary_TA
+import sys
+sys.path.append('../')
+import Test_cuda, Train_model_trainer, Approx_optimizer, restnet_1d, Facility_Update, IndexedDataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from torch.utils.data import DataLoader, Subset, ConcatDataset, TensorDataset
+from torch.utils.data import DataLoader, Subset, ConcatDataset
 import torch.nn.functional as F
-import pandas as pd
-
 
 import subprocess
 
@@ -21,8 +22,8 @@ class new_trainer():
         self.device, self.dtype = Test_cuda.check_device() # Check if cuda is available
 
         # Model & Parameters
-        self.label_model = restnet_1d_multiclass.build_model() # Model used to train the data(M_1)
-        self.train_model = restnet_1d_multiclass.build_model() # Model used to train the data(M_0)
+        self.label_model = restnet_1d.build_model() # Model used to train the data(M_1)
+        self.train_model = restnet_1d.build_model() # Model used to train the data(M_0)
         self.batch_size = 128 # Batch size
         self.lr = 0.00001 # Learning rate
         self.optimizer = optim.Adam(self.train_model.parameters(), lr=self.lr) # Optimizer
@@ -34,7 +35,7 @@ class new_trainer():
         self.train_iter = iter
         
         # Variables
-        self.rs_rate = 0.05
+        self.rs_rate = 0.005
         self.gradients = [] # Gradients of the unlabel set
         self.pseudo_labels = [] # Pseudo labels of the unlabel set
         self.unlabel_loader = DataLoader # Unlabelled dataset
@@ -58,13 +59,12 @@ class new_trainer():
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
     def initial_training(self):
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
-        ini_train_loader, self.unlabel_loader = Data_wrapper_multiclass_TA.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate)
-        # ini_train_loader, self.unlabel_loader = Data_wrapper.process_us(self.train_model, self.device, self.dtype, self.batch_size, self.rs_rate) 
+        ini_train_loader, self.unlabel_loader = Data_wrapper_binary_TA.process(batch_size=self.batch_size)
 
         # Train the initial model over the label set
-        Train_model_trainer_multiclass.initial_train(ini_train_loader, self.train_model, self.device, self.dtype, criterion=self.criterion, learning_rate=self.lr)
+        Train_model_trainer.initial_train(ini_train_loader, self.train_model, self.device, self.dtype, criterion=self.criterion, learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
-        self.pseudo_labels = Train_model_trainer_multiclass.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
+        self.pseudo_labels = Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
 
  
     def train_epoch(self, epoch):
@@ -75,11 +75,12 @@ class new_trainer():
 
         for training_step in range(self.steps_per_epoch * epoch, self.steps_per_epoch * (epoch + 1)):
             if((training_step > self.reset_step) and ((training_step - self.reset_step) % 3 == 0)): 
+                print("checking approx error at step: ", training_step)
                 self.check_approx_error(training_step)
             
             if training_step == self.reset_step or training_step == 0:
-                self.gradients = Train_model_trainer_multiclass.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = self.criterion)
-                print("len gradients: ", len(self.gradients))
+                print("Updating coreset at step: ", training_step)
+                self.gradients = Train_model_trainer.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = self.criterion)
                 self.select_subset()
                 self.update_train_loader_and_weights()
 
@@ -199,7 +200,7 @@ class new_trainer():
             unlabel_set = self.unlabel_loader.dataset.dataset
             unlabel_set = Subset(unlabel_set, remaining_indices)
             self.unlabel_loader = DataLoader(IndexedDataset.IndexedDataset(unlabel_set), batch_size=self.batch_size, shuffle=False, drop_last=True)
-            self.pseudo_labels = Train_model_trainer_multiclass.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
+            self.pseudo_labels = Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
             
     
     def get_quadratic_approximation(self):
@@ -314,7 +315,7 @@ class new_trainer():
             subset_count += 1
 
     def test_accuracy_without_weight(self):
-        test_model = restnet_1d_multiclass.build_model()
+        test_model = restnet_1d.build_model()
         optimizer = optim.Adam(test_model.parameters(), lr=self.lr)
         print("Testing accuracy without weight!")
         unlabel_loader = self.unlabel_loader
@@ -340,15 +341,6 @@ class new_trainer():
                 optimizer.step()  
             if epoch % 10 == 0:
                 print(f'Epoch {epoch+1}, Loss: {loss.item()}')
-
-        print("Loading data...")
-        data_dic_path = "/vol/bitbucket/kp620/FYP/dataset/time-aware-multiclass"
-        x_data = pd.read_csv(f'{data_dic_path}/x_test_time_aware.csv').astype(float)
-        y_data = pd.read_csv(f'{data_dic_path}/y_test_time_aware.csv').astype(float)
-        x_data = torch.from_numpy(x_data.values).unsqueeze(1)
-        y_data = torch.from_numpy(y_data.values)
-        full_dataset = TensorDataset(x_data, y_data)
-        test_loader = DataLoader(IndexedDataset.IndexedDataset(full_dataset), batch_size=self.batch_size, shuffle=True, drop_last=True)
         
         test_model.eval()
         test_model = test_model.to(device=self.device)
@@ -356,7 +348,7 @@ class new_trainer():
         total_predictions = 0
         # Disable gradient calculations
         with torch.no_grad():
-            for t, (inputs, targets, idx) in enumerate(test_loader):
+            for t, (inputs, targets, idx) in enumerate(unlabel_loader):
                 inputs = inputs.to(self.device, dtype=self.dtype)
                 targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
                 # Forward pass to get outputs
@@ -368,6 +360,14 @@ class new_trainer():
                 # Count correct predictions
                 correct_predictions += torch.sum(pseudo_label == targets.data).item()
                 total_predictions += targets.size(0)
+                # # Filter for instances where the real class is 1
+                # class_1_indices = (targets == 1)
+                # filtered_targets = targets[class_1_indices]
+                # filtered_pseudo_label = pseudo_label[class_1_indices]
+                
+                # # Count correct predictions for class 1
+                # correct_predictions += torch.sum(filtered_pseudo_label == filtered_targets.data).item()
+                # total_predictions += filtered_targets.size(0)
         # Calculate average loss and accuracy
         test_accuracy = correct_predictions / total_predictions
         print("correct predictions without weight: ", correct_predictions)
@@ -376,7 +376,7 @@ class new_trainer():
         return test_accuracy
     
     def test_accuracy_with_weight(self):
-        test_model = restnet_1d_multiclass.build_model()
+        test_model = restnet_1d.build_model()
         print("Testing accuracy with weight!")
         unlabel_loader = self.unlabel_loader
         coreset = self.final_coreset
@@ -409,15 +409,6 @@ class new_trainer():
                 optimizer.step()  
             if epoch % 10 == 0:
                 print(f'Epoch {epoch+1}, Loss: {loss.item()}')
-
-        print("Loading data...")
-        data_dic_path = "/vol/bitbucket/kp620/FYP/dataset/time-aware-multiclass"
-        x_data = pd.read_csv(f'{data_dic_path}/x_test_time_aware.csv').astype(float)
-        y_data = pd.read_csv(f'{data_dic_path}/y_test_time_aware.csv').astype(float)
-        x_data = torch.from_numpy(x_data.values).unsqueeze(1)
-        y_data = torch.from_numpy(y_data.values)
-        full_dataset = TensorDataset(x_data, y_data)
-        test_loader = DataLoader(IndexedDataset.IndexedDataset(full_dataset), batch_size=self.batch_size, shuffle=True, drop_last=True)
         
         test_model.eval()
         test_model = test_model.to(device=self.device)
@@ -425,7 +416,7 @@ class new_trainer():
         total_predictions = 0
         # Disable gradient calculations
         with torch.no_grad():
-            for t, (inputs, targets, _) in enumerate(test_loader):
+            for t, (inputs, targets, _) in enumerate(unlabel_loader):
                 inputs = inputs.to(self.device, dtype=self.dtype)
                 targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
                 # Forward pass to get outputs

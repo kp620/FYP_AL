@@ -1,5 +1,5 @@
 import torch
-import Test_cuda, restnet_1d_binary
+import Test_cuda, restnet_1d
 import pandas as pd
 from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
@@ -101,8 +101,17 @@ def eval_model(model, test_loader, device, dtype, criterion):
             _, pseudo_label = torch.max(probabilities, dim=1)
 
             # Count correct predictions
-            correct_predictions += torch.sum(pseudo_label == targets.data).item()
-            total_predictions += targets.size(0)
+            # # Count correct predictions
+            # correct_predictions += torch.sum(pseudo_label == targets.data).item()
+            # total_predictions += targets.size(0)
+                # Filter for instances where the real class is 1
+            class_1_indices = (targets == 1)
+            filtered_targets = targets[class_1_indices]
+            filtered_pseudo_label = pseudo_label[class_1_indices]
+            
+            # Count correct predictions for class 1
+            correct_predictions += torch.sum(filtered_pseudo_label == filtered_targets.data).item()
+            total_predictions += filtered_targets.size(0)
     # Calculate average loss and accuracy
     test_accuracy = correct_predictions / total_predictions
     print("correct predictions: ", correct_predictions)
@@ -123,7 +132,7 @@ x_train, x_data, y_train, y_data = random_sampling(x_data, y_data, (selection_bu
 print("length of x_train: ", len(x_train))
 train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=128, shuffle=True)
 test_loader = DataLoader(TensorDataset(x_data, y_data), batch_size=128, shuffle=True)
-model = restnet_1d_binary.build_model().to(device=device)
+model = restnet_1d.build_model().to(device=device)
 optimizer = optim.Adam(model.parameters(), lr=0.00001)
 criterion = torch.nn.CrossEntropyLoss()
 model = train_model(model, train_loader, device, dtype, criterion, optimizer, num_epochs)
