@@ -1,5 +1,3 @@
-import time
-
 import numpy as np
 from submodlib.functions.facilityLocation import FacilityLocationFunction
 from submodlib.helper import create_kernel

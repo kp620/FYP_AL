@@ -1,6 +1,6 @@
 # --------------------------------
 # Import area
-import test_Cuda, model_Trainer, data_Wrapper, Approx_optimizer, restnet_1d, facility_Update, indexed_Dataset
+import test_Cuda, model_Trainer, data_Wrapper, approx_Optimizer, restnet_1d, facility_Update, indexed_Dataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -60,7 +60,7 @@ class main_trainer():
         self.final_coreset = None
         self.Model_trainer = model_Trainer # Model trainer
         self.Model = restnet_1d # Model
-        self.gradient_approx_optimizer = Approx_optimizer.Adahessian(self.model.parameters())
+        self.gradient_approx_optimizer = approx_Optimizer.Adahessian(self.model.parameters())
     
     
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0

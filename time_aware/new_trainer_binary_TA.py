@@ -3,7 +3,7 @@
 import Data_wrapper_binary_TA
 import sys
 sys.path.append('../')
-import test_Cuda, model_Trainer, Approx_optimizer, restnet_1d, facility_Update, indexed_Dataset
+import test_Cuda, model_Trainer, approx_Optimizer, restnet_1d, facility_Update, indexed_Dataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -43,7 +43,7 @@ class new_trainer():
         self.approx_loader = DataLoader # Approximation dataset
         self.coreset_loader = DataLoader # Coreset dataset
         self.check_thresh_factor = 0.1
-        self.gradient_approx_optimizer = Approx_optimizer.Adahessian(self.train_model.parameters())
+        self.gradient_approx_optimizer = approx_Optimizer.Adahessian(self.train_model.parameters())
         self.delta = 0 
         self.gf = 0 
         self.ggf = 0
