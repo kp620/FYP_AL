@@ -10,11 +10,15 @@ import indexed_Dataset
 
 
 # Load training data
-def load_train_data():
+def load_train_data(class_type):
     print("Loading data...")
     data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
-    x_train_data = pd.read_csv(f'{data_dic_path}/x_train_time_aware_binary.csv').astype(float)
-    y_train_data = pd.read_csv(f'{data_dic_path}/y_train_time_aware_binary.csv').astype(float)
+    if(class_type == 'binary'):
+        x_train_data = pd.read_csv(f'{data_dic_path}/x_train_time_aware_binary.csv').astype(float)
+        y_train_data = pd.read_csv(f'{data_dic_path}/y_train_time_aware_binary.csv').astype(float)
+    elif(class_type == 'multi'):
+        x_train_data = pd.read_csv(f'{data_dic_path}/x_train_time_aware_multiclass.csv').astype(float)
+        y_train_data = pd.read_csv(f'{data_dic_path}/y_train_time_aware_multiclass.csv').astype(float)
     print('Training Data Loaded!')
     print('Total Length: ', len(x_train_data))
     x_train_data = torch.from_numpy(x_train_data.values).unsqueeze(1)
@@ -22,11 +26,15 @@ def load_train_data():
     train_datast = TensorDataset(x_train_data, y_train_data)
     return train_datast
 
-def load_test_data():
+def load_test_data(class_type):
     print("Loading data...")
     data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
-    x_test_data = pd.read_csv(f'{data_dic_path}/x_test_time_aware_binary.csv').astype(float)
-    y_test_data = pd.read_csv(f'{data_dic_path}/y_test_time_aware_binary.csv').astype(float)
+    if(class_type == 'binary'):
+        x_train_data = pd.read_csv(f'{data_dic_path}/x_test_time_aware_binary.csv').astype(float)
+        y_train_data = pd.read_csv(f'{data_dic_path}/y_test_time_aware_binary.csv').astype(float)
+    elif(class_type == 'multi'):
+        x_train_data = pd.read_csv(f'{data_dic_path}/x_test_time_aware_multiclass.csv').astype(float)
+        y_train_data = pd.read_csv(f'{data_dic_path}/y_test_time_aware_multiclass.csv').astype(float)
     print('Testing Data Loaded!')
     print('Total Length: ', len(x_test_data))
     x_test_data = torch.from_numpy(x_test_data.values).unsqueeze(1)
@@ -34,8 +42,8 @@ def load_test_data():
     test_datast = TensorDataset(x_test_data, y_test_data)
     return test_datast
 
-def process(batch_size):
-    train_datast = load_train_data()
+def process(class_type, batch_size):
+    train_datast = load_train_data(class_type)
     test_datast = load_test_data()
     train_loader = DataLoader(indexed_Dataset.IndexedDataset(train_datast), batch_size=batch_size, shuffle=True, drop_last=True)
     test_loader = DataLoader(indexed_Dataset.IndexedDataset(test_datast), batch_size=batch_size, shuffle=False, drop_last=True)

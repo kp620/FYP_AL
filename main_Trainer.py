@@ -1,6 +1,6 @@
 # --------------------------------
 # Import area
-import test_Cuda, model_Trainer, data_Wrapper, approx_Optimizer, restnet_1d, facility_Update, indexed_Dataset
+import test_Cuda, model_Trainer, data_Wrapper, data_Wrapper_TA, approx_Optimizer, restnet_1d, facility_Update, indexed_Dataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -10,6 +10,7 @@ import torch.nn.functional as F
 import subprocess
 import pickle
 import argparse
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 # --------------------------------
 # Argument parser
@@ -67,7 +68,10 @@ class main_trainer():
     def initial_training(self):
         self.model = self.Model.build_model(class_type=args.class_type)
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
-        ini_train_loader, self.unlabel_loader = data_Wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate, class_type=args.class_type)       
+        if(args.operation_type == 'iid'):
+            ini_train_loader, self.unlabel_loader = data_Wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate, class_type=args.class_type) 
+        elif(args.operation_type == 'time-aware'):
+            ini_train_loader, self.unlabel_loader = data_Wrapper_TA.process(args.class_type, batch_size=self.batch_size)      
         # Train the initial model over the label set
         self.Model_trainer.initial_train(ini_train_loader, self.model, self.device, self.dtype, criterion=self.criterion, learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
@@ -117,32 +121,21 @@ class main_trainer():
     
     def main_train(self, epoch):
         self.initial_training() # 在initial training就update delta?
+        print("Main training start!")
 
         for e in range(epoch):
-
             self.train_epoch(e)
 
-            if e % 3 == 1:
-                accuracy_without_weight = self.test_accuracy_without_weight()
-                command = ["echo", f"Accuracy without weight: {accuracy_without_weight}"]
-                subprocess.run(command)
+        print("Main training complete!")
 
-                accuracy_with_weight = self.test_accuracy_with_weight()
-                command = ["echo", f"Accuracy with weight: {accuracy_with_weight}"]
-                subprocess.run(command)
-        
-        print("Training complete!")
-        dataset_path = 'unlabel_set.pkl'
-
-        # Saving the dataset
-        with open(dataset_path, 'wb') as f:
-            pickle.dump(self.unlabel_loader, f)
-        
-        with open("coreset.pkl", 'wb') as f:
-            pickle.dump(self.final_coreset, f)
-
-        with open("weights.pkl", 'wb') as f:
-            pickle.dump(self.final_weights, f)
+        # dataset_path = 'unlabel_set.pkl'
+        # # Saving the dataset
+        # with open(dataset_path, 'wb') as f:
+        #     pickle.dump(self.unlabel_loader, f)
+        # with open("coreset.pkl", 'wb') as f:
+        #     pickle.dump(self.final_coreset, f)
+        # with open("weights.pkl", 'wb') as f:
+        #     pickle.dump(self.final_weights, f)
 
         self.test_accuracy_without_weight()
         self.test_accuracy_with_weight()
@@ -290,80 +283,78 @@ class main_trainer():
         unlabel_loader = self.unlabel_loader
         coreset = self.final_coreset
         print("len coreset: ", len(coreset))
-        command = ["echo", f"Length of coreset: {len(coreset)}"]
-        subprocess.run(command)
-
-        coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=True, drop_last=False)
-        test_model.train()
-        test_model = test_model.to(device=self.device)
+        coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=False, drop_last=False)
 
         # Training loop
+        test_model.train()
+        test_model = test_model.to(device=self.device)
         num_epochs = 100
         for epoch in range(num_epochs):
-            for t,(x,y,idx) in enumerate(coreset_loader):
-                x = x.to(device=self.device, dtype=self.dtype)
-                y = y.to(device=self.device, dtype=self.dtype).squeeze().long()
+            for batch,(input, target, idx) in enumerate(coreset_loader):
+                input = input.to(device=self.device, dtype=self.dtype)
+                target = target.to(device=self.device, dtype=self.dtype).squeeze().long()
                 optimizer.zero_grad()
-                output, _ = test_model(x)
-                loss = self.criterion(output,y)
+                output, _ = test_model(input)
+                loss = self.criterion(output,target)
                 loss.backward()
                 optimizer.step()  
             if epoch % 10 == 0:
                 print(f'Epoch {epoch+1}, Loss: {loss.item()}')
         
         test_model.eval()
-        test_model = test_model.to(device=self.device)
-        correct_predictions = 0
-        total_predictions = 0
+        predictions = []
+        targets = []
         # Disable gradient calculations
         with torch.no_grad():
-            for t, (inputs, targets, idx) in enumerate(unlabel_loader):
-                inputs = inputs.to(self.device, dtype=self.dtype)
-                targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
-                # Forward pass to get outputs
-                output, _ = test_model(inputs)
-                # Calculate the loss
-                loss = self.criterion(output, targets)
+            for batch, (input, target, idx) in enumerate(unlabel_loader):
+                input = input.to(self.device, dtype=self.dtype)
+                target = target.to(self.device, dtype=self.dtype).squeeze().long()
+                output, _ = test_model(input)
                 probabilities = F.softmax(output, dim=1)
                 _, pseudo_label = torch.max(probabilities, dim=1)
-                # Count correct predictions
-                correct_predictions += torch.sum(pseudo_label == targets.data).item()
-                total_predictions += targets.size(0)
-        # Calculate average loss and accuracy
-        test_accuracy = correct_predictions / total_predictions
-        print("correct predictions without weight: ", correct_predictions)
-        print("total_predictions without weight: ", total_predictions)
-        print(f'Test Accuracy without weight: {test_accuracy:.2f}')
-        return test_accuracy
+                predictions.extend(pseudo_label.cpu().numpy())
+                targets.extend(target.cpu().numpy())
+        predictions = np.array(predictions)
+        targets = np.array(targets)
+        accuracy = accuracy_score(targets, predictions)
+        if(args.class_type == 'binary'):
+            precision = precision_score(targets, predictions, average='binary') 
+            recall = recall_score(targets, predictions, average='binary')
+            f1 = f1_score(targets, predictions, average='binary')
+        elif(args.class_type == 'multi'):
+            precision = precision_score(targets, predictions, average='macro')
+            recall = recall_score(targets, predictions, average='macro')
+            f1 = f1_score(targets, predictions, average='macro')
+        print(f"Accuracy: {accuracy:.2f}")
+        print(f"Precision: {precision:.2f}")
+        print(f"Recall: {recall:.2f}")
+        print(f"F1 Score: {f1:.2f}")
     
     def test_accuracy_with_weight(self):
-        test_model = restnet_1d.build_model()
-        print("Testing accuracy with weight!")
+        test_model = self.Model.build_model()
+        optimizer = optim.Adam(test_model.parameters(), lr=self.lr)
+        print("Testing accuracy without weight!")
         unlabel_loader = self.unlabel_loader
         coreset = self.final_coreset
         print("len coreset: ", len(coreset))
-        command = ["echo", f"Length of coreset: {len(coreset)}"]
-        subprocess.run(command)
-        
+        coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=False, drop_last=False)
         weights = self.final_weights
-
-        coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=True, drop_last=False)
-        test_model.train()
-        test_model = test_model.to(device=self.device)
-        optimizer = optim.Adam(test_model.parameters(), lr=self.lr)
-
         weights = np.array(weights)
         weights = torch.from_numpy(weights).float().to(self.device)
+        weights = weights / torch.sum(weights)
+
         # Training loop
+        test_model.train()
+        test_model = test_model.to(device=self.device)
         num_epochs = 100
         for epoch in range(num_epochs):
-            for t,(x,y,idx) in enumerate(coreset_loader):
-                x = x.to(device=self.device, dtype=self.dtype)
-                y = y.to(device=self.device, dtype=self.dtype).squeeze().long()
-                batch_weight = weights[t*self.batch_size:(t+1)*self.batch_size]
+            for batch,(input, target, idx) in enumerate(coreset_loader):
+                input = input.to(device=self.device, dtype=self.dtype)
+                target = target.to(device=self.device, dtype=self.dtype).squeeze().long()
+                batch_weight = weights[idx.long()]
                 optimizer.zero_grad()
-                output, _ = test_model(x)
-                loss = self.criterion(output,y)
+                output, _ = test_model(input)
+                loss = self.criterion(output,target)
                 loss = (loss * batch_weight).mean()
                 loss.backward()
                 optimizer.step()  
@@ -371,29 +362,33 @@ class main_trainer():
                 print(f'Epoch {epoch+1}, Loss: {loss.item()}')
         
         test_model.eval()
-        test_model = test_model.to(device=self.device)
-        correct_predictions = 0
-        total_predictions = 0
+        predictions = []
+        targets = []
         # Disable gradient calculations
         with torch.no_grad():
-            for t, (inputs, targets, _) in enumerate(unlabel_loader):
-                inputs = inputs.to(self.device, dtype=self.dtype)
-                targets = targets.to(self.device, dtype=self.dtype).squeeze().long()
-                # Forward pass to get outputs
-                output, _ = test_model(inputs)
-                # Calculate the loss
-                loss = self.criterion(output, targets)
+            for batch, (input, target, idx) in enumerate(unlabel_loader):
+                input = input.to(self.device, dtype=self.dtype)
+                target = target.to(self.device, dtype=self.dtype).squeeze().long()
+                output, _ = test_model(input)
                 probabilities = F.softmax(output, dim=1)
                 _, pseudo_label = torch.max(probabilities, dim=1)
-                # Count correct predictions
-                correct_predictions += torch.sum(pseudo_label == targets.data).item()
-                total_predictions += targets.size(0)
-        # Calculate average loss and accuracy
-        test_accuracy = correct_predictions / total_predictions
-        print("correct predictions with weight: ", correct_predictions)
-        print("total_predictions with weight: ", total_predictions)
-        print(f'Test Accuracy with weight: {test_accuracy:.2f}')
-        return test_accuracy
+                predictions.extend(pseudo_label.cpu().numpy())
+                targets.extend(target.cpu().numpy())
+        predictions = np.array(predictions)
+        targets = np.array(targets)
+        accuracy = accuracy_score(targets, predictions)
+        if(args.class_type == 'binary'):
+            precision = precision_score(targets, predictions, average='binary') 
+            recall = recall_score(targets, predictions, average='binary')
+            f1 = f1_score(targets, predictions, average='binary')
+        elif(args.class_type == 'multi'):
+            precision = precision_score(targets, predictions, average='macro')
+            recall = recall_score(targets, predictions, average='macro')
+            f1 = f1_score(targets, predictions, average='macro')
+        print(f"Accuracy: {accuracy:.2f}")
+        print(f"Precision: {precision:.2f}")
+        print(f"Recall: {recall:.2f}")
+        print(f"F1 Score: {f1:.2f}")
     
 caller = main_trainer()
 caller.main_train(2)
