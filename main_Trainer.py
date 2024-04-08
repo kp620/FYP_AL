@@ -1,6 +1,6 @@
 # --------------------------------
 # Import area
-import Test_cuda, Train_model_trainer, Data_wrapper, Approx_optimizer, restnet_1d, Facility_Update, IndexedDataset
+import test_Cuda, model_Trainer, data_Wrapper, Approx_optimizer, restnet_1d, facility_Update, indexed_Dataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -24,7 +24,7 @@ args = parser.parse_args()
 class main_trainer():
     def __init__(self):
         # Device & Data type
-        self.device, self.dtype = Test_cuda.check_device() # Check if cuda is available
+        self.device, self.dtype = test_Cuda.check_device() # Check if cuda is available
 
         # Model & Parameters
         self.model = None # Model used to train the data(M_0)
@@ -58,7 +58,7 @@ class main_trainer():
         self.train_weights = []
         self.final_weights = []
         self.final_coreset = None
-        self.Model_trainer = Train_model_trainer # Model trainer
+        self.Model_trainer = model_Trainer # Model trainer
         self.Model = restnet_1d # Model
         self.gradient_approx_optimizer = Approx_optimizer.Adahessian(self.model.parameters())
     
@@ -67,7 +67,7 @@ class main_trainer():
     def initial_training(self):
         self.model = self.Model.build_model(class_type=args.class_type)
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
-        ini_train_loader, self.unlabel_loader = Data_wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate, class_type=args.class_type)       
+        ini_train_loader, self.unlabel_loader = data_Wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate, class_type=args.class_type)       
         # Train the initial model over the label set
         self.Model_trainer.initial_train(ini_train_loader, self.model, self.device, self.dtype, criterion=self.criterion, learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
@@ -91,7 +91,7 @@ class main_trainer():
                 print("Updating coreset at step: ", training_step)
                 self.gradients = self.Model_trainer.gradient_train(training_step, self.model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size=self.batch_size, criterion=self.criterion)
                 self.select_subset(training_step)
-                self.update_train_loader_and_weights()
+                self.update_train_loader_and_weights(training_step)
 
                 # Update the train loader and weights
                 if self.final_coreset is None:
@@ -191,19 +191,20 @@ class main_trainer():
 
         thresh = self.check_thresh_factor * true_loss                          
         if loss_diff > thresh:
+            print("Loss diff is larger than threshold, updating coreset at step: ", training_step)
             self.reset_step = training_step
             all_indices = set(range(len(self.unlabel_loader.dataset)))
             coreset_indices = set(self.coreset_index)
             remaining_indices = list(all_indices - coreset_indices)
             unlabel_set = self.unlabel_loader.dataset.dataset
             unlabel_set = Subset(unlabel_set, remaining_indices)
-            self.unlabel_loader = DataLoader(IndexedDataset.IndexedDataset(unlabel_set), batch_size=self.batch_size, shuffle=False, drop_last=False)
-            self.pseudo_labels = self.Model_trainer.psuedo_labeling(self.model, self.device, self.dtype, loader = self.unlabel_loader)
+            self.unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(unlabel_set), batch_size=self.batch_size, shuffle=False, drop_last=False)
+            self.pseudo_labels = self.Model_trainer.psuedo_labeling(self.model, self.device, self.dtype, loader=self.unlabel_loader)
             
     
     def get_quadratic_approximation(self):
         # second-order approximation with coreset
-        self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, indices=self.coreset_index), batch_size=self.batch_size, shuffle=True, drop_last=False)
+        self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, indices=self.coreset_index), batch_size=self.batch_size, shuffle=False, drop_last=False)
         self.start_loss = 0 
         count = 0 
         for batch, (input, target, idx) in enumerate (self.approx_loader):
@@ -235,18 +236,19 @@ class main_trainer():
         self.delta = 0
         print("Quadratic approximation complete!")
 
-    def update_train_loader_and_weights(self):
-        self.coreset_loader = DataLoader(Subset(self.unlabel_loader.dataset, indices = self.coreset_index), batch_size=self.batch_size, shuffle=True, drop_last=False)
+    def update_train_loader_and_weights(self, training_step):
+        print("Updating train loader and weights at step: ", training_step)
+        self.coreset_loader = DataLoader(Subset(self.unlabel_loader.dataset, indices=self.coreset_index), batch_size=self.batch_size, shuffle=False, drop_last=False)
         self.train_weights = np.zeros(len(self.unlabel_loader.dataset))
         self.weights = self.weights / np.sum(self.weights) * len(self.coreset_index)
         self.train_weights[self.coreset_index] = self.weights
         self.train_weights = torch.from_numpy(self.train_weights).float().to(self.device)
 
     def select_random_set(self):
-        train_indices = np.arange(len(self.gradients))
+        all_indices = np.arange(len(self.gradients))
         indices = []
         for c in np.unique(self.pseudo_labels):
-            class_indices = np.intersect1d(np.where(self.pseudo_labels == c)[0], train_indices)
+            class_indices = np.intersect1d(np.where(self.pseudo_labels == c)[0], all_indices)
             indices_per_class = np.random.choice(class_indices, size=int(np.ceil(0.001 * len(class_indices))), replace=False)
             indices.append(indices_per_class)
         indices = np.concatenate(indices).astype(int)
@@ -273,7 +275,7 @@ class main_trainer():
             if gradient_data.size <= 0:
                 continue
             fl_labels = self.pseudo_labels[subset] - torch.min(self.pseudo_labels[subset]) # Ensure the labels start from 0
-            sub_coreset_index, sub_weights= Facility_Update.get_orders_and_weights(5, gradient_data, "euclidean", y=fl_labels.cpu().numpy(), equal_num=False, mode="sparse", num_n=128)
+            sub_coreset_index, sub_weights= facility_Update.get_orders_and_weights(5, gradient_data, "euclidean", y=fl_labels.cpu().numpy(), equal_num=False, mode="sparse", num_n=128)
             sub_coreset_index = subset[sub_coreset_index] # Get the indices of the coreset
             self.coreset_index.extend(sub_coreset_index.tolist()) # Add the coreset to the coreset list
             self.weights.extend(sub_weights.tolist()) # Add the weights to the weights list

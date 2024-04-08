@@ -3,7 +3,7 @@
 import Data_wrapper_binary_TA
 import sys
 sys.path.append('../')
-import Test_cuda, Train_model_trainer, Approx_optimizer, restnet_1d, Facility_Update, IndexedDataset
+import test_Cuda, model_Trainer, Approx_optimizer, restnet_1d, facility_Update, indexed_Dataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -19,7 +19,7 @@ import subprocess
 class new_trainer():
     def __init__(self):
         # Device & Data type
-        self.device, self.dtype = Test_cuda.check_device() # Check if cuda is available
+        self.device, self.dtype = test_Cuda.check_device() # Check if cuda is available
 
         # Model & Parameters
         self.label_model = restnet_1d.build_model() # Model used to train the data(M_1)
@@ -62,9 +62,9 @@ class new_trainer():
         ini_train_loader, self.unlabel_loader = Data_wrapper_binary_TA.process(batch_size=self.batch_size)
 
         # Train the initial model over the label set
-        Train_model_trainer.initial_train(ini_train_loader, self.train_model, self.device, self.dtype, criterion=self.criterion, learning_rate=self.lr)
+        model_Trainer.initial_train(ini_train_loader, self.train_model, self.device, self.dtype, criterion=self.criterion, learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
-        self.pseudo_labels = Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
+        self.pseudo_labels = model_Trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
 
  
     def train_epoch(self, epoch):
@@ -80,7 +80,7 @@ class new_trainer():
             
             if training_step == self.reset_step or training_step == 0:
                 print("Updating coreset at step: ", training_step)
-                self.gradients = Train_model_trainer.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = self.criterion)
+                self.gradients = model_Trainer.gradient_train(self.train_model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size = self.batch_size, criterion = self.criterion)
                 self.select_subset()
                 self.update_train_loader_and_weights()
 
@@ -199,8 +199,8 @@ class new_trainer():
             remaining_indices = list(all_indices - coreset_indices)
             unlabel_set = self.unlabel_loader.dataset.dataset
             unlabel_set = Subset(unlabel_set, remaining_indices)
-            self.unlabel_loader = DataLoader(IndexedDataset.IndexedDataset(unlabel_set), batch_size=self.batch_size, shuffle=False, drop_last=True)
-            self.pseudo_labels = Train_model_trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
+            self.unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(unlabel_set), batch_size=self.batch_size, shuffle=False, drop_last=True)
+            self.pseudo_labels = model_Trainer.psuedo_labeling(self.train_model, self.device, self.dtype, loader = self.unlabel_loader)
             
     
     def get_quadratic_approximation(self):
@@ -298,7 +298,7 @@ class new_trainer():
             # Facility location function
             fl_labels = self.pseudo_labels[subset] - torch.min(self.pseudo_labels[subset])
 
-            sub_coreset_index, sub_weights= Facility_Update.get_orders_and_weights(
+            sub_coreset_index, sub_weights= facility_Update.get_orders_and_weights(
                 128,
                 gradient_data,
                 "euclidean",

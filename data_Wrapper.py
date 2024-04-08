@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset, Subset
-import IndexedDataset 
+import indexed_Dataset 
 
 
 
@@ -67,13 +67,13 @@ def us_acquire_label(model, device, dtype, batch_size, full_dataset, us_rate = 0
 def process_rs(batch_size, rs_rate, class_type):
     full_dataset = load_data(class_type)
     label_set, unlabel_set = rs_acquire_label(full_dataset, rs_rate)
-    label_loader = DataLoader(IndexedDataset.IndexedDataset(label_set), batch_size=batch_size, shuffle=True, drop_last=False)    
-    unlabel_loader = DataLoader(IndexedDataset.IndexedDataset(unlabel_set), batch_size=batch_size, shuffle=True, drop_last=False)
+    label_loader = DataLoader(indexed_Dataset.IndexedDataset(label_set), batch_size=batch_size, shuffle=True, drop_last=False)    
+    unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(unlabel_set), batch_size=batch_size, shuffle=True, drop_last=False)
     return label_loader, unlabel_loader
 
 def process_us(model, device, dtype, batch_size, rs_rate, class_type):
     full_dataset = load_data(class_type)
     label_set, unlabel_set = us_acquire_label(model, device, dtype, batch_size, full_dataset, rs_rate)
-    label_loader = DataLoader(IndexedDataset.IndexedDataset(label_set), batch_size=batch_size, shuffle=True, drop_last=False)  
-    unlabel_loader = DataLoader(IndexedDataset.IndexedDataset(unlabel_set), batch_size=batch_size, shuffle=True, drop_last=False)
+    label_loader = DataLoader(indexed_Dataset.IndexedDataset(label_set), batch_size=batch_size, shuffle=True, drop_last=False)  
+    unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(unlabel_set), batch_size=batch_size, shuffle=True, drop_last=False)
     return label_loader, unlabel_loader

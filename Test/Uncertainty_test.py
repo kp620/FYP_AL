@@ -1,5 +1,5 @@
 import torch
-import Test_cuda, restnet_1d
+import test_Cuda, restnet_1d
 import pandas as pd
 from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
@@ -7,7 +7,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 
-device, dtype = Test_cuda.check_device()
+device, dtype = test_Cuda.check_device()
 
 def load_data():
     print("Loading data...")

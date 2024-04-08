@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader, TensorDataset, Subset
 import pickle
 import sys
 sys.path.append('../')
-import IndexedDataset
+import indexed_Dataset
 
 
 
@@ -37,6 +37,6 @@ def load_test_data():
 def process(batch_size):
     train_datast = load_train_data()
     test_datast = load_test_data()
-    train_loader = DataLoader(IndexedDataset.IndexedDataset(train_datast), batch_size=batch_size, shuffle=True, drop_last=True)
-    test_loader = DataLoader(IndexedDataset.IndexedDataset(test_datast), batch_size=batch_size, shuffle=False, drop_last=True)
+    train_loader = DataLoader(indexed_Dataset.IndexedDataset(train_datast), batch_size=batch_size, shuffle=True, drop_last=True)
+    test_loader = DataLoader(indexed_Dataset.IndexedDataset(test_datast), batch_size=batch_size, shuffle=False, drop_last=True)
     return train_loader, test_loader
