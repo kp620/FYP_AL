@@ -1,13 +1,15 @@
 import torch
 import sys 
 sys.path.append('../')
-import test_Cuda, restnet_1d, restnet_1d_multiclass
+import test_Cuda, restnet_1d, restnet_1d_multi
 import pandas as pd
 from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
+import numpy as np
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 device, dtype = test_Cuda.check_device()
 
@@ -32,11 +34,10 @@ def random_sampling(x_data, y_data, selection_rate):
     not_selected_indices = all_indices[num_select:]
     x_not_selected = x_data[not_selected_indices]
     y_not_selected = y_data[not_selected_indices]
-
     return x_selected, x_not_selected, y_selected, y_not_selected
 
 
-model = restnet_1d_multiclass.build_model()
+model = restnet_1d_multi.build_model()
 model.to(device=device)
 x_data, y_data = load_data()
 
@@ -66,37 +67,34 @@ for epoch in range(num_epochs):
     if epoch % 10 == 0:
         print(f'Epoch {epoch+1}, Loss: {loss.item()}')
 
-# Test the model
 model.eval()
-correct_predictions = 0
-total_predictions = 0
+predictions = []
+targets = []
 # Disable gradient calculations
 with torch.no_grad():
-    for t, (inputs, targets) in enumerate(test_loader):
-        inputs = inputs.to(device, dtype=dtype)
-        targets = targets.to(device, dtype=dtype).squeeze().long()
-        # Forward pass to get outputs
-        scores, _ = model(inputs)
-        # Calculate the loss
-        loss = criterion(scores, targets)
-
-        probabilities = F.softmax(scores, dim=1)
+    for batch, (input, target) in enumerate(test_loader):
+        input = input.to(device, dtype=dtype)
+        target = target.to(device, dtype=dtype).squeeze().long()
+        output, _ = model(input)
+        probabilities = F.softmax(output, dim=1)
         _, pseudo_label = torch.max(probabilities, dim=1)
+        predictions.extend(pseudo_label.cpu().numpy())
+        targets.extend(target.cpu().numpy())
+predictions = np.array(predictions)
+targets = np.array(targets)
 
-        # Count correct predictions
-        correct_predictions += torch.sum(pseudo_label == targets.data).item()
-        total_predictions += targets.size(0)
-        # # Filter for instances where the real class is 1
-        # class_1_indices = (targets != 0)
-        # filtered_targets = targets[class_1_indices]
-        # filtered_pseudo_label = pseudo_label[class_1_indices]
-        
-        # # Count correct predictions for class 1
-        # correct_predictions += torch.sum(filtered_pseudo_label == filtered_targets.data).item()
-        # total_predictions += filtered_targets.size(0)
-# Calculate average loss and accuracy
-test_accuracy = correct_predictions / total_predictions
-print("correct predictions: ", correct_predictions)
-print("total_predictions: ", total_predictions)
-# Return results
-print(f'Test Accuracy: {test_accuracy:.2f}')
+accuracy = accuracy_score(targets, predictions)
+precision = precision_score(targets, predictions, average='weighted')
+recall = recall_score(targets, predictions, average='weighted')
+f1 = f1_score(targets, predictions, average='weighted')
+print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')
+
+precision = precision_score(targets, predictions, average='micro')
+recall = recall_score(targets, predictions, average='micro')
+f1 = f1_score(targets, predictions, average='micro')
+print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')
+
+precision = precision_score(targets, predictions, average='macro')
+recall = recall_score(targets, predictions, average='macro')
+f1 = f1_score(targets, predictions, average='macro')
+print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')

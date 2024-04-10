@@ -20,15 +20,19 @@ parser.add_argument("--operation_type",  choices=['iid', 'time-aware'], help='Sp
 parser.add_argument("--class_type", choices=['binary', 'multi'], help='Specify class type: "binary" or "multi"')
 args = parser.parse_args()
 
+
 # --------------------------------
 # Main processing logic
 class main_trainer():
-    def __init__(self):
+    def __init__(self, args=args):
+        self.args = args
         # Device & Data type
         self.device, self.dtype = test_Cuda.check_device() # Check if cuda is available
 
         # Model & Parameters
-        self.model = None # Model used to train the data(M_0)
+        self.Model_trainer = model_Trainer # Model trainer
+        self.Model = restnet_1d # Model
+        self.model = self.Model.build_model(class_type=self.args.class_type) # Model used to train the data(M_0)
         self.batch_size = 1024 # Batch size
         self.lr = 0.00001 # Learning rate
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr) # Optimizer
@@ -59,19 +63,16 @@ class main_trainer():
         self.train_weights = []
         self.final_weights = []
         self.final_coreset = None
-        self.Model_trainer = model_Trainer # Model trainer
-        self.Model = restnet_1d # Model
         self.gradient_approx_optimizer = approx_Optimizer.Adahessian(self.model.parameters())
     
     
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
     def initial_training(self):
-        self.model = self.Model.build_model(class_type=args.class_type)
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
-        if(args.operation_type == 'iid'):
-            ini_train_loader, self.unlabel_loader = data_Wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate, class_type=args.class_type) 
-        elif(args.operation_type == 'time-aware'):
-            ini_train_loader, self.unlabel_loader = data_Wrapper_TA.process(args.class_type, batch_size=self.batch_size)      
+        if(self.args.operation_type == 'iid'):
+            ini_train_loader, self.unlabel_loader = data_Wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate, class_type=self.args.class_type) 
+        elif(self.args.operation_type == 'time-aware'):
+            ini_train_loader, self.unlabel_loader = data_Wrapper_TA.process(self.args.class_type, batch_size=self.batch_size)      
         # Train the initial model over the label set
         self.Model_trainer.initial_train(ini_train_loader, self.model, self.device, self.dtype, criterion=self.criterion, learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
@@ -80,14 +81,14 @@ class main_trainer():
  
     def train_epoch(self, epoch):
         print("Training epoch: ", epoch)
-        self.steps_per_epoch = np.ceil(int(len(self.unlabel_loader.dataset) * 0.1) / self.batch_size).astype(int)
+        self.steps_per_epoch = np.ceil(int(len(self.unlabel_loader.dataset.dataset) * 0.1) / self.batch_size).astype(int)
         print("Steps per epoch: ", self.steps_per_epoch)
         self.reset_step = self.steps_per_epoch
         # Training loop
         self.model.train()
         for training_step in range(self.steps_per_epoch * epoch, self.steps_per_epoch * (epoch + 1)):
             # Check the approximation error
-            if((training_step > self.reset_step) and ((training_step - self.reset_step) % self.reset_step == 0)): 
+            if((training_step > self.reset_step) and ((training_step - self.reset_step) % 10 == 0)): 
                 print("Checking approx error at step: ", training_step)
                 self.check_approx_error(training_step)
             # Update the coreset
@@ -124,7 +125,11 @@ class main_trainer():
         print("Main training start!")
 
         for e in range(epoch):
+            command = "echo 'Epoch: " + str(e) + "'"
+            subprocess.call(command, shell=True)
             self.train_epoch(e)
+            self.test_accuracy_without_weight()
+            self.test_accuracy_with_weight()
 
         print("Main training complete!")
 
@@ -137,8 +142,6 @@ class main_trainer():
         # with open("weights.pkl", 'wb') as f:
         #     pickle.dump(self.final_weights, f)
 
-        self.test_accuracy_without_weight()
-        self.test_accuracy_with_weight()
 
 
 # --------------------------------
@@ -252,14 +255,14 @@ class main_trainer():
         self.coreset_index = []
         self.subsets = []
         self.weights = []
-        for iteration in range(8):
+        for iteration in range(5):
             random_subset = self.select_random_set()
             subsets.append(random_subset)
         # Greedy Facility Location
         print("Greedy FL Start at step: ", training_step)
         subset_count = 0
         for subset in subsets: 
-            if subset_count % 3 == 0:
+            if subset_count % 1 == 0:
                 print("Handling subset #", subset_count, " out of #", len(subsets))
             gradient_data = self.gradients[subset]
             # if np.shape(gradient_data)[-1] == 2:
@@ -268,7 +271,7 @@ class main_trainer():
             if gradient_data.size <= 0:
                 continue
             fl_labels = self.pseudo_labels[subset] - torch.min(self.pseudo_labels[subset]) # Ensure the labels start from 0
-            sub_coreset_index, sub_weights= facility_Update.get_orders_and_weights(5, gradient_data, "euclidean", y=fl_labels.cpu().numpy(), equal_num=False, mode="sparse", num_n=128)
+            sub_coreset_index, sub_weights= facility_Update.get_orders_and_weights(128, gradient_data, "euclidean", y=fl_labels.cpu().numpy(), equal_num=False, mode="sparse", num_n=128)
             sub_coreset_index = subset[sub_coreset_index] # Get the indices of the coreset
             self.coreset_index.extend(sub_coreset_index.tolist()) # Add the coreset to the coreset list
             self.weights.extend(sub_weights.tolist()) # Add the weights to the weights list
@@ -277,7 +280,7 @@ class main_trainer():
         print("Greedy FL Complete at step: ", training_step)
 
     def test_accuracy_without_weight(self):
-        test_model = self.Model.build_model()
+        test_model = self.Model.build_model(class_type=self.args.class_type)
         optimizer = optim.Adam(test_model.parameters(), lr=self.lr)
         print("Testing accuracy without weight!")
         unlabel_loader = self.unlabel_loader
@@ -317,11 +320,11 @@ class main_trainer():
         predictions = np.array(predictions)
         targets = np.array(targets)
         accuracy = accuracy_score(targets, predictions)
-        if(args.class_type == 'binary'):
+        if(self.args.class_type == 'binary'):
             precision = precision_score(targets, predictions, average='binary') 
             recall = recall_score(targets, predictions, average='binary')
             f1 = f1_score(targets, predictions, average='binary')
-        elif(args.class_type == 'multi'):
+        elif(self.args.class_type == 'multi'):
             precision = precision_score(targets, predictions, average='macro')
             recall = recall_score(targets, predictions, average='macro')
             f1 = f1_score(targets, predictions, average='macro')
@@ -329,15 +332,22 @@ class main_trainer():
         print(f"Precision: {precision:.2f}")
         print(f"Recall: {recall:.2f}")
         print(f"F1 Score: {f1:.2f}")
+        command = "echo 'MACRO RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'"
+        subprocess.call(command, shell=True)
+        precision = precision_score(targets, predictions, average='binary') 
+        recall = recall_score(targets, predictions, average='binary')
+        f1 = f1_score(targets, predictions, average='binary')
+        command = "echo 'WEIGHTED RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'"
+        subprocess.call(command, shell=True)
     
     def test_accuracy_with_weight(self):
-        test_model = self.Model.build_model()
+        test_model = self.Model.build_model(class_type=self.args.class_type)
         optimizer = optim.Adam(test_model.parameters(), lr=self.lr)
         print("Testing accuracy without weight!")
         unlabel_loader = self.unlabel_loader
         coreset = self.final_coreset
         print("len coreset: ", len(coreset))
-        coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=False, drop_last=False)
+        coreset_loader = DataLoader(coreset, batch_size=128, shuffle=False, drop_last=True)
         weights = self.final_weights
         weights = np.array(weights)
         weights = torch.from_numpy(weights).float().to(self.device)
@@ -351,15 +361,13 @@ class main_trainer():
             for batch,(input, target, idx) in enumerate(coreset_loader):
                 input = input.to(device=self.device, dtype=self.dtype)
                 target = target.to(device=self.device, dtype=self.dtype).squeeze().long()
-                batch_weight = weights[idx.long()]
+                batch_weight = weights[batch * self.batch_size: (batch + 1) * self.batch_size]
                 optimizer.zero_grad()
                 output, _ = test_model(input)
                 loss = self.criterion(output,target)
                 loss = (loss * batch_weight).mean()
                 loss.backward()
                 optimizer.step()  
-            if epoch % 10 == 0:
-                print(f'Epoch {epoch+1}, Loss: {loss.item()}')
         
         test_model.eval()
         predictions = []
@@ -377,11 +385,11 @@ class main_trainer():
         predictions = np.array(predictions)
         targets = np.array(targets)
         accuracy = accuracy_score(targets, predictions)
-        if(args.class_type == 'binary'):
+        if(self.args.class_type == 'binary'):
             precision = precision_score(targets, predictions, average='binary') 
             recall = recall_score(targets, predictions, average='binary')
             f1 = f1_score(targets, predictions, average='binary')
-        elif(args.class_type == 'multi'):
+        elif(self.args.class_type == 'multi'):
             precision = precision_score(targets, predictions, average='macro')
             recall = recall_score(targets, predictions, average='macro')
             f1 = f1_score(targets, predictions, average='macro')
@@ -389,6 +397,13 @@ class main_trainer():
         print(f"Precision: {precision:.2f}")
         print(f"Recall: {recall:.2f}")
         print(f"F1 Score: {f1:.2f}")
+        command = "echo 'MACRO RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'"
+        subprocess.call(command, shell=True)
+        precision = precision_score(targets, predictions, average='binary') 
+        recall = recall_score(targets, predictions, average='binary')
+        f1 = f1_score(targets, predictions, average='binary')
+        command = "echo 'WEIGHTED RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'"
+        subprocess.call(command, shell=True)
     
-caller = main_trainer()
-caller.main_train(2)
+caller = main_trainer(args=args)
+caller.main_train(5)

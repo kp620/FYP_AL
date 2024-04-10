@@ -62,20 +62,15 @@ class ResNet1D(nn.Module):
 def ResNet18_1D(num_classes=2):
     return ResNet1D(BasicBlock1D, [2, 2, 2, 2], num_classes=num_classes)
 
-def explain_model(class_type):
-    if class_type == "binary":
-        print("Building binary model...")
-        model = ResNet18_1D(num_classes=2)
-    elif class_type == "multi":
-        print("Building multiclass model...")
-        model = ResNet18_1D(num_classes=15)
+def explain_model():
+    model = ResNet18_1D(num_classes=15)
     # print(model)
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Total number of parameters is: ", params)
     return model
 
-def build_model(class_type):
-    model = explain_model(class_type)
+def build_model():
+    model = explain_model()
     # kaiming initialization
     if isinstance(model, torch.nn.Linear) or isinstance(model, torch.nn.Conv1d):
         torch.nn.init.kaiming_uniform_(model.weight)

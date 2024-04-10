@@ -7,6 +7,8 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 import copy
+import numpy as np
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 device, dtype = test_Cuda.check_device()
 
@@ -37,12 +39,9 @@ def uncertainty_sampling(model, x_data, y_data, selection_rate, device = device,
     # Make sure the model is in evaluation mode
     model.eval()
     model = model.to(device=device)
-
     dataset = TensorDataset(x_data, y_data)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-
     all_probs = []
-
     with torch.no_grad():
         for batch_idx, (x_batch, _) in enumerate(loader):
             x_batch = x_batch.to(device=device, dtype=dtype)
@@ -85,46 +84,41 @@ def train_model(model, train_loader, device, dtype, criterion, optimizer, num_ep
 
 def eval_model(model, test_loader, device, dtype, criterion):
     model.eval()
-    correct_predictions = 0
-    total_predictions = 0
-    # Disable gradient calculations
+    predictions = []
+    targets = []
     with torch.no_grad():
-        for t, (inputs, targets) in enumerate(test_loader):
-            inputs = inputs.to(device, dtype=dtype)
-            targets = targets.to(device, dtype=dtype).squeeze().long()
-            # Forward pass to get outputs
-            scores, _ = model(inputs)
-            # Calculate the loss
-            loss = criterion(scores, targets)
-
-            probabilities = F.softmax(scores, dim=1)
+        for batch, (input, target) in enumerate(test_loader):
+            input = input.to(device, dtype=dtype)
+            target = target.to(device, dtype=dtype).squeeze().long()
+            output, _ = model(input)
+            probabilities = F.softmax(output, dim=1)
             _, pseudo_label = torch.max(probabilities, dim=1)
+            predictions.extend(pseudo_label.cpu().numpy())
+            targets.extend(target.cpu().numpy())
+    predictions = np.array(predictions)
+    targets = np.array(targets)
 
-            # Count correct predictions
-            # # Count correct predictions
-            # correct_predictions += torch.sum(pseudo_label == targets.data).item()
-            # total_predictions += targets.size(0)
-                # Filter for instances where the real class is 1
-            class_1_indices = (targets == 1)
-            filtered_targets = targets[class_1_indices]
-            filtered_pseudo_label = pseudo_label[class_1_indices]
-            
-            # Count correct predictions for class 1
-            correct_predictions += torch.sum(filtered_pseudo_label == filtered_targets.data).item()
-            total_predictions += filtered_targets.size(0)
-    # Calculate average loss and accuracy
-    test_accuracy = correct_predictions / total_predictions
-    print("correct predictions: ", correct_predictions)
-    print("total_predictions: ", total_predictions)
-    # Return results
-    print(f'Test Accuracy: {test_accuracy:.2f}')
-    return test_accuracy
+    accuracy = accuracy_score(targets, predictions)
+    precision = precision_score(targets, predictions, average='weighted')
+    recall = recall_score(targets, predictions, average='weighted')
+    f1 = f1_score(targets, predictions, average='weighted')
+    print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')
+
+    precision = precision_score(targets, predictions, average='micro')
+    recall = recall_score(targets, predictions, average='micro')
+    f1 = f1_score(targets, predictions, average='micro')
+    print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')
+
+    precision = precision_score(targets, predictions, average='macro')
+    recall = recall_score(targets, predictions, average='macro')
+    f1 = f1_score(targets, predictions, average='macro')
+    print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')
 
 
 x_data, y_data = load_data()
 
 AL_iter = 10
-selection_budget = 0.013
+selection_budget = 0.01
 num_epochs = 50
 
 

@@ -13,7 +13,7 @@ def load_data(class_type):
     if(class_type == "binary"):
         x_data = pd.read_csv(f'{data_dic_path}/x_data_iid_binary.csv').astype(float)
         y_data = pd.read_csv(f'{data_dic_path}/y_data_iid_binary.csv').astype(float)
-    elif(class_type == "multiclass"):
+    elif(class_type == "multi"):
         x_data = pd.read_csv(f'{data_dic_path}/x_data_iid_multiclass.csv').astype(float)
         y_data = pd.read_csv(f'{data_dic_path}/y_data_iid_multiclass.csv').astype(float)
     print('Full Data Loaded!')
