@@ -102,6 +102,13 @@ def get_orders_and_weights(
         num_per_class = np.int32(
             np.ceil(np.divide([sum(y == i) for i in classes], N) * B)
         )
+        # num_per_class = np.int32(
+        #     np.ceil(
+        #         np.divide(N, [sum(y == i) for i in classes])/np.sum(np.divide(N, [sum(y == i) for i in classes])) 
+        #             * 
+        #             B
+        #             )
+        # )
 
     # print(f"Greedy: selecting {num_per_class} elements")
 

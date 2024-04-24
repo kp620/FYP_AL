@@ -1,5 +1,7 @@
 import torch
-import test_Cuda, restnet_1d_multiclass
+import sys 
+sys.path.append('../')
+import test_Cuda, restnet_1d_multi
 import pandas as pd
 from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
@@ -7,6 +9,8 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 import copy
+import numpy as np
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 device, dtype = test_Cuda.check_device()
 
@@ -18,7 +22,7 @@ def load_data():
     print('Training Data Loaded!')
     print('Total Length: ', len(x_data))
     x_data = torch.from_numpy(x_data.values).unsqueeze(1)
-    y_data = torch.from_numpy(y_data.values)
+    y_data = torch.from_numpy(y_data.values).squeeze()
     return x_data, y_data
 
 def random_sampling(x_data, y_data, selection_rate):
@@ -36,6 +40,10 @@ def random_sampling(x_data, y_data, selection_rate):
 def uncertainty_sampling(model, x_data, y_data, selection_rate, device = device, dtype = dtype, batch_size = 128):
     # Make sure the model is in evaluation mode
     model.eval()
+
+    # Ensure x_data and y_data are on the same device as the model
+    x_data = x_data.to(device, dtype = dtype)
+    y_data = y_data.to(device, dtype = dtype).long()
     model = model.to(device=device)
 
     dataset = TensorDataset(x_data, y_data)
@@ -57,14 +65,13 @@ def uncertainty_sampling(model, x_data, y_data, selection_rate, device = device,
     
     uncertainty_indices = all_probs.argsort()[:num_select]
     
-    # Use these indices to select the samples
+   # Use these indices to select the samples
     x_selected = x_data[uncertainty_indices]
     y_selected = y_data[uncertainty_indices]
 
     not_selected_mask = ~torch.isin(torch.arange(num_samples), uncertainty_indices)
     x_not_selected = x_data[not_selected_mask]
     y_not_selected = y_data[not_selected_mask]
-
     return x_selected, x_not_selected, y_selected, y_not_selected
 
 def train_model(model, train_loader, device, dtype, criterion, optimizer, num_epochs):
@@ -73,7 +80,7 @@ def train_model(model, train_loader, device, dtype, criterion, optimizer, num_ep
         for t,(x,y) in enumerate(train_loader):
             model.train()
             x = x.to(device=device, dtype=dtype)
-            y = y.to(device=device, dtype=dtype).squeeze().long()
+            y = y.to(device=device, dtype=dtype).long()
             optimizer.zero_grad()
             output, _ = model(x)
             loss = criterion(output,y)
@@ -83,80 +90,47 @@ def train_model(model, train_loader, device, dtype, criterion, optimizer, num_ep
             print(f'Epoch {epoch+1}, Loss: {loss.item()}')
     return model
 
-def eval_model(model, test_loader, device, dtype, criterion):
+def eval_model(model, test_loader, device, dtype):
     model.eval()
-    correct_predictions = 0
-    total_predictions = 0
+    predictions = []
+    targets = []
     # Disable gradient calculations
     with torch.no_grad():
-        for t, (inputs, targets) in enumerate(test_loader):
-            inputs = inputs.to(device, dtype=dtype)
-            targets = targets.to(device, dtype=dtype).squeeze().long()
-            # Forward pass to get outputs
-            scores, _ = model(inputs)
-            # Calculate the loss
-            loss = criterion(scores, targets)
-
-            probabilities = F.softmax(scores, dim=1)
+        for batch, (input, target) in enumerate(test_loader):
+            input = input.to(device, dtype=dtype)
+            target = target.to(device, dtype=dtype).long()
+            output, _ = model(input)
+            probabilities = F.softmax(output, dim=1)
             _, pseudo_label = torch.max(probabilities, dim=1)
+            predictions.extend(pseudo_label.cpu().numpy())
+            targets.extend(target.cpu().numpy())
+    predictions = np.array(predictions)
+    targets = np.array(targets)
 
-            # # Count correct predictions
-            # correct_predictions += torch.sum(pseudo_label == targets.data).item()
-            # total_predictions += targets.size(0)
-
-            # Filter for instances where the real class is 1
-            class_1_indices = (targets == 1)
-            filtered_targets = targets[class_1_indices]
-            filtered_pseudo_label = pseudo_label[class_1_indices]
-            
-            # Count correct predictions for class 1
-            correct_predictions += torch.sum(filtered_pseudo_label == filtered_targets.data).item()
-            total_predictions += filtered_targets.size(0)
-    # Calculate average loss and accuracy
-    test_accuracy = correct_predictions / total_predictions
-    print("correct predictions: ", correct_predictions)
-    print("total_predictions: ", total_predictions)
-    # Return results
-    print(f'Test Accuracy: {test_accuracy:.2f}')
-    return test_accuracy
-
+    accuracy = accuracy_score(targets, predictions)
+    precision = precision_score(targets, predictions, average='macro')
+    recall = recall_score(targets, predictions, average='macro')
+    f1 = f1_score(targets, predictions, average='macro')
+    print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')
 
 x_data, y_data = load_data()
 
 AL_iter = 10
-selection_budget = 0.013
-num_epochs = 50
+selection_budget = 0.03
+num_epochs = 30
 
 
 x_train, x_data, y_train, y_data = random_sampling(x_data, y_data, (selection_budget/AL_iter))
 print("length of x_train: ", len(x_train))
 train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=128, shuffle=True)
 test_loader = DataLoader(TensorDataset(x_data, y_data), batch_size=128, shuffle=True)
-model = restnet_1d_multiclass.build_model().to(device=device)
+model = restnet_1d_multi.build_model().to(device=device)
 optimizer = optim.Adam(model.parameters(), lr=0.00001)
 criterion = torch.nn.CrossEntropyLoss()
 model = train_model(model, train_loader, device, dtype, criterion, optimizer, num_epochs)
-eval_model(model, test_loader, device, dtype, criterion)
+eval_model(model, test_loader, device, dtype)
 
 us_model = copy.deepcopy(model)
-rs_model = copy.deepcopy(model)
-
-def RS_Model(rs_model, x_data, y_data, x_train, y_train):
-    print("Random Sampling")
-    for _ in range(0, AL_iter):
-        print(f' Update {_+1}')
-        x_selected, x_data, y_selected, y_data = random_sampling(x_data, y_data, selection_budget/AL_iter)
-        x_train = torch.cat((x_train, x_selected.to('cpu')), dim=0)
-        y_train = torch.cat((y_train, y_selected.to('cpu')), dim=0)
-        train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=128, shuffle=True)
-        rs_model = train_model(rs_model, train_loader, device, dtype, criterion, optimizer, num_epochs)
-
-    print("length of x_train: ", len(x_train))
-
-    test_loader = DataLoader(TensorDataset(x_data, y_data), batch_size=128, shuffle=True)
-    eval_model(rs_model, test_loader, device, dtype, criterion)
-
-
 
 def US_Model(us_model, x_data, y_data, x_train, y_train):
     print("Uncertainty Sampling")
@@ -171,8 +145,6 @@ def US_Model(us_model, x_data, y_data, x_train, y_train):
     print("length of x_train: ", len(x_train))
 
     test_loader = DataLoader(TensorDataset(x_data, y_data), batch_size=128, shuffle=True)
-    eval_model(rs_model, test_loader, device, dtype, criterion)
+    eval_model(us_model, test_loader, device, dtype)
 
-
-RS_Model(us_model, x_data, y_data, x_train, y_train)
-US_Model(rs_model, x_data, y_data, x_train, y_train)
+US_Model(us_model, x_data, y_data, x_train, y_train)

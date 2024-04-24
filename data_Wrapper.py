@@ -7,7 +7,7 @@ import indexed_Dataset
 
 
 # Load training data
-def load_data(class_type):
+def load_data(class_type, budget):
     print("Loading data...")
     data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
     if(class_type == "binary"):
@@ -18,12 +18,13 @@ def load_data(class_type):
         y_data = pd.read_csv(f'{data_dic_path}/y_data_iid_multiclass.csv').astype(float)
     print('Full Data Loaded!')
     print('Fulll Data Length: ', len(x_data))
+    budget = int(len(x_data) * budget)
     x_data = torch.from_numpy(x_data.values).unsqueeze(1)
     y_data = torch.from_numpy(y_data.values)
     unique_labels = y_data.unique().tolist()
     print("Unique labels: ", len(unique_labels))
     full_dataset = TensorDataset(x_data, y_data)
-    return full_dataset
+    return full_dataset, budget
 
 # Select samples to label(manually)
 def rs_acquire_label(full_dataset, rs_rate = 0.05):
@@ -64,12 +65,12 @@ def us_acquire_label(model, device, dtype, batch_size, full_dataset, us_rate = 0
     return label_set, unlabel_set
 
 # Main
-def process_rs(batch_size, rs_rate, class_type):
-    full_dataset = load_data(class_type)
+def process_rs(batch_size, rs_rate, class_type, budget):
+    full_dataset, budget = load_data(class_type, budget)
     label_set, unlabel_set = rs_acquire_label(full_dataset, rs_rate)
     label_loader = DataLoader(indexed_Dataset.IndexedDataset(label_set), batch_size=batch_size, shuffle=True, drop_last=False)    
     unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(unlabel_set), batch_size=batch_size, shuffle=True, drop_last=False)
-    return label_loader, unlabel_loader
+    return label_loader, unlabel_loader, budget
 
 def process_us(model, device, dtype, batch_size, rs_rate, class_type):
     full_dataset = load_data(class_type)

@@ -133,4 +133,3 @@ def psuedo_labeling(model, devc, dtype, loader):
             pseudo_labels.append(pseudo_label.cpu())
     pseudo_labels = torch.cat(pseudo_labels)
     return pseudo_labels
-
