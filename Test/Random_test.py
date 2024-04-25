@@ -41,11 +41,139 @@ model = restnet_1d_multi.build_model()
 model.to(device=device)
 x_data, y_data = load_data()
 
-x_selected, x_not_selected, y_selected, y_not_selected = random_sampling(x_data, y_data, 0.11)
+x_selected, x_not_selected, y_selected, y_not_selected = random_sampling(x_data, y_data, 0.02)
 print("x_selected length: ", len(x_selected))
 
-train_loader = DataLoader(TensorDataset(x_selected, y_selected), batch_size=128, shuffle=True)
-test_loader = DataLoader(TensorDataset(x_not_selected, y_not_selected), batch_size=128, shuffle=True)
+train_loader = DataLoader(TensorDataset(x_selected, y_selected), batch_size=1024, shuffle=True)
+test_loader = DataLoader(TensorDataset(x_not_selected, y_not_selected), batch_size=1024, shuffle=True)
+
+
+# # Train the model with coreset 
+model.train()
+optimizer = optim.Adam(model.parameters(), lr=0.00001)
+criterion = torch.nn.CrossEntropyLoss()
+    # Training loop
+num_epochs = 50
+for epoch in range(num_epochs):
+    for t,(x,y) in enumerate(train_loader):
+        model.train()
+        x = x.to(device=device, dtype=dtype)
+        y = y.to(device=device, dtype=dtype).squeeze().long()
+        optimizer.zero_grad()
+        output, _ = model(x)
+        loss = criterion(output,y)
+        loss.backward()
+        optimizer.step()  
+    if epoch % 10 == 0:
+        print(f'Epoch {epoch+1}, Loss: {loss.item()}')
+
+model.eval()
+predictions = []
+targets = []
+# Disable gradient calculations
+with torch.no_grad():
+    for batch, (input, target) in enumerate(test_loader):
+        input = input.to(device, dtype=dtype)
+        target = target.to(device, dtype=dtype).squeeze().long()
+        output, _ = model(input)
+        probabilities = F.softmax(output, dim=1)
+        _, pseudo_label = torch.max(probabilities, dim=1)
+        predictions.extend(pseudo_label.cpu().numpy())
+        targets.extend(target.cpu().numpy())
+predictions = np.array(predictions)
+targets = np.array(targets)
+
+accuracy = accuracy_score(targets, predictions)
+# precision = precision_score(targets, predictions, average='weighted')
+# recall = recall_score(targets, predictions, average='weighted')
+# f1 = f1_score(targets, predictions, average='weighted')
+# print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')
+
+# precision = precision_score(targets, predictions, average='micro')
+# recall = recall_score(targets, predictions, average='micro')
+# f1 = f1_score(targets, predictions, average='micro')
+# print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')
+
+precision = precision_score(targets, predictions, average='macro')
+recall = recall_score(targets, predictions, average='macro')
+f1 = f1_score(targets, predictions, average='macro')
+print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')
+
+
+
+model = restnet_1d_multi.build_model()
+model.to(device=device)
+x_data, y_data = load_data()
+
+x_selected, x_not_selected, y_selected, y_not_selected = random_sampling(x_data, y_data, 0.03)
+print("x_selected length: ", len(x_selected))
+
+train_loader = DataLoader(TensorDataset(x_selected, y_selected), batch_size=1024, shuffle=True)
+test_loader = DataLoader(TensorDataset(x_not_selected, y_not_selected), batch_size=1024, shuffle=True)
+
+
+# # Train the model with coreset 
+model.train()
+optimizer = optim.Adam(model.parameters(), lr=0.00001)
+criterion = torch.nn.CrossEntropyLoss()
+    # Training loop
+num_epochs = 50
+for epoch in range(num_epochs):
+    for t,(x,y) in enumerate(train_loader):
+        model.train()
+        x = x.to(device=device, dtype=dtype)
+        y = y.to(device=device, dtype=dtype).squeeze().long()
+        optimizer.zero_grad()
+        output, _ = model(x)
+        loss = criterion(output,y)
+        loss.backward()
+        optimizer.step()  
+    if epoch % 10 == 0:
+        print(f'Epoch {epoch+1}, Loss: {loss.item()}')
+
+model.eval()
+predictions = []
+targets = []
+# Disable gradient calculations
+with torch.no_grad():
+    for batch, (input, target) in enumerate(test_loader):
+        input = input.to(device, dtype=dtype)
+        target = target.to(device, dtype=dtype).squeeze().long()
+        output, _ = model(input)
+        probabilities = F.softmax(output, dim=1)
+        _, pseudo_label = torch.max(probabilities, dim=1)
+        predictions.extend(pseudo_label.cpu().numpy())
+        targets.extend(target.cpu().numpy())
+predictions = np.array(predictions)
+targets = np.array(targets)
+
+accuracy = accuracy_score(targets, predictions)
+# precision = precision_score(targets, predictions, average='weighted')
+# recall = recall_score(targets, predictions, average='weighted')
+# f1 = f1_score(targets, predictions, average='weighted')
+# print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')
+
+# precision = precision_score(targets, predictions, average='micro')
+# recall = recall_score(targets, predictions, average='micro')
+# f1 = f1_score(targets, predictions, average='micro')
+# print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')
+
+precision = precision_score(targets, predictions, average='macro')
+recall = recall_score(targets, predictions, average='macro')
+f1 = f1_score(targets, predictions, average='macro')
+print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')
+
+
+
+model = restnet_1d_multi.build_model()
+model.to(device=device)
+x_data, y_data = load_data()
+
+x_selected, x_not_selected, y_selected, y_not_selected = random_sampling(x_data, y_data, 0.05)
+print("x_selected length: ", len(x_selected))
+
+train_loader = DataLoader(TensorDataset(x_selected, y_selected), batch_size=1024, shuffle=True)
+test_loader = DataLoader(TensorDataset(x_not_selected, y_not_selected), batch_size=1024, shuffle=True)
 
 
 # # Train the model with coreset 

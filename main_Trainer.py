@@ -1,6 +1,6 @@
 # --------------------------------
 # Import area
-import test_Cuda, model_Trainer, data_Wrapper, approx_Optimizer, restnet_1d, facility_Update, indexed_Dataset, data_preprocess
+import test_Cuda, model_Trainer, data_Wrapper, approx_Optimizer, restnet_1d, facility_Update, indexed_Dataset, data_Preprocess
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -18,6 +18,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 parser = argparse.ArgumentParser()
 parser.add_argument("--operation_type",  choices=['iid', 'time-aware'], help='Specify operation type: "iid" or "time-aware"')
 parser.add_argument("--class_type", choices=['binary', 'multi'], help='Specify class type: "binary" or "multi"')
+parser.add_argument("--budget", type=float, help='Specify the budget')
 args = parser.parse_args()
 
 
@@ -56,6 +57,7 @@ class main_trainer():
         self.ggf_moment = 0
         self.start_loss = 0
         self.rs_rate = 0.005 # In IID, the rate of random sampling that is used to train the initial model
+        self.budget = self.args.budget # Budget
         self.gradients = [] # Gradients of the unlabel set
         self.pseudo_labels = [] # Pseudo labels of the unlabel set
         self.subsets = []
@@ -73,12 +75,14 @@ class main_trainer():
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
         if(self.args.operation_type == 'iid'):
             # ini_train_loader, self.unlabel_loader, self.budget = data_Wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate, class_type=self.args.class_type, budget=0.03) 
-            ini_train_loader, self.unlabel_loader, self.budget = data_preprocess.main(batch_size=self.batch_size, rs_rate=self.rs_rate, class_type=self.args.class_type, budget=0.015)
+            ini_train_loader, self.unlabel_loader, self.budget = data_Preprocess.main(batch_size=self.batch_size, rs_rate=self.rs_rate, class_type=self.args.class_type, budget=self.budget)
         # Train the initial model over the label set
         self.Model_trainer.initial_train(ini_train_loader, self.model, self.device, self.dtype, criterion=self.criterion, learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
         self.pseudo_labels = self.Model_trainer.psuedo_labeling(self.model, self.device, self.dtype, loader=self.unlabel_loader)
-        self.steps_per_epoch = np.ceil(int(len(self.unlabel_loader.dataset.dataset) * 0.015) / self.batch_size).astype(int)
+        self.steps_per_epoch = np.ceil(int(len(self.unlabel_loader.dataset.dataset) * self.budget) / self.batch_size).astype(int)
+        command = "echo "
+        subprocess.call(command, shell=True)
         print("Steps per epoch: ", self.steps_per_epoch)
 
  
@@ -110,6 +114,8 @@ class main_trainer():
                         self.stop = 1
                         break
                     self.final_coreset = ConcatDataset([self.final_coreset, Subset(self.unlabel_loader.dataset, self.coreset_index)])
+                command = "echo 'Final coreset length: " + str(len(self.final_coreset)) + "'"
+                subprocess.call(command, shell=True)
                 for weight in self.weights:
                     self.final_weights.append(weight)
 
@@ -190,10 +196,6 @@ class main_trainer():
         print("true loss: ", true_loss)
         print("approx loss: ", approx_loss)
         print("diff: ", loss_diff)
-        # command = "echo 'True loss: " + str(true_loss) + "' + 'Approx loss: " + str(approx_loss) + "' + 'Diff: " + str(loss_diff) + "'"
-        # subprocess.call(command, shell=True)
-        # command = "echo 'Start loss: " + str(self.start_loss) + "'"
-        # subprocess.call(command, shell=True)
 
         thresh = self.check_thresh_factor * true_loss                          
         if loss_diff > thresh:
@@ -282,7 +284,7 @@ class main_trainer():
             if gradient_data.size <= 0:
                 continue
             fl_labels = self.pseudo_labels[subset] - torch.min(self.pseudo_labels[subset]) # Ensure the labels start from 0
-            sub_coreset_index, sub_weights= facility_Update.get_orders_and_weights(64, gradient_data, "euclidean", y=fl_labels.cpu().numpy(), equal_num=False, mode="sparse", num_n=128)
+            sub_coreset_index, sub_weights= facility_Update.get_orders_and_weights(128, gradient_data, "euclidean", y=fl_labels.cpu().numpy(), equal_num=False, mode="sparse", num_n=128)
             sub_coreset_index = subset[sub_coreset_index] # Get the indices of the coreset
             self.coreset_index.extend(sub_coreset_index.tolist()) # Add the coreset to the coreset list
             self.weights.extend(sub_weights.tolist()) # Add the weights to the weights list
@@ -427,4 +429,4 @@ class main_trainer():
         subprocess.call(command, shell=True)
     
 caller = main_trainer(args=args)
-caller.main_train(5)
+caller.main_train(50)

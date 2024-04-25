@@ -22,6 +22,8 @@ def load_data(class_type, budget):
     print('Full Data Loaded!')
     print('Fulll Data Length: ', len(x_data))
     budget = int(len(x_data) * budget)
+    command = "echo 'budget: " + str(budget) + "'"
+    subprocess.call(command, shell=True)
     # x_data = torch.from_numpy(x_data.values).unsqueeze(1)
     x_data = torch.from_numpy(x_data.values)
     y_data = torch.from_numpy(y_data.values)
@@ -132,7 +134,7 @@ def cluster_sample(full_dataset, full_dataset_pca, C, batch_size, rs_rate = 0.01
     return label_loader, unlabel_loader
 
 
-def main(batch_size, rs_rate, class_type = "multi", budget = 0.05):
+def main(batch_size, rs_rate, class_type, budget):
     full_dataset, budget = load_data(class_type, budget)
     command = "echo 'loading finished'"
     subprocess.call(command, shell=True)

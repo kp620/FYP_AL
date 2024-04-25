@@ -108,6 +108,7 @@ def gradient_train(model, unlabel_loader, pseudo_labels, device, dtype, batch_si
     for batch, (input, target, idx) in enumerate(unlabel_loader):
         input = input.to(device=device, dtype=dtype)
         pseudo_y = pseudo_labels[idx].to(device=device, dtype=dtype).squeeze().long()
+        # pseudo_y = pseudo_labels[batch * batch_size: (batch + 1) * batch_size].to(device=device, dtype=dtype).squeeze().long()
         output, pre_linear_output = model(input)
         # Enable gradient retention for non-leaf tensor
         pre_linear_output.retain_grad()
