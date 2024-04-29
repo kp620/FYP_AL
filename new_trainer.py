@@ -5,10 +5,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from torch.utils.data import DataLoader, Subset, ConcatDataset
+from torch.utils.data import DataLoader, Subset, ConcatDataset, TensorDataset
 import torch.nn.functional as F
 import subprocess
-import pickle
+import pandas as pd
 import argparse
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
@@ -57,7 +57,8 @@ class main_trainer():
         self.ggf_moment = 0
         self.start_loss = 0
         self.rs_rate = 0.005 # In IID, the rate of random sampling that is used to train the initial model
-        self.budget = self.args.budget # Budget
+        self.budget_ratio = self.args.budget # Budget
+        self.budget = 0
         self.gradients = [] # Gradients of the unlabel set
         self.pseudo_labels = [] # Pseudo labels of the unlabel set
         self.subsets = []
@@ -73,36 +74,83 @@ class main_trainer():
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
     def initial_training(self):
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
-        if(self.args.operation_type == 'iid'):
-            # ini_train_loader, self.unlabel_loader, self.budget = data_Wrapper.process_rs(batch_size=self.batch_size, rs_rate=self.rs_rate, class_type=self.args.class_type, budget=0.03) 
-            ini_train_loader, self.unlabel_loader, self.budget = data_Preprocess.main(batch_size=self.batch_size, rs_rate=self.rs_rate, class_type=self.args.class_type, budget=self.budget)
+        if(self.args.operation_type == 'iid'): 
+            # self.label_loader, self.unlabel_loader, self.budget = data_Preprocess.main(batch_size=self.batch_size, rs_rate=self.rs_rate, class_type=self.args.class_type, budget=self.budget_ratio)
+            data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
+            selected_indice = np.load(f'{data_dic_path}/selected_indice.npy')
+            not_selected_indice = np.load(f'{data_dic_path}/not_selected_indice.npy')
+            x_data = pd.read_csv(f'{data_dic_path}/x_data_iid_multiclass.csv').astype(float)
+            y_data = pd.read_csv(f'{data_dic_path}/y_data_iid_multiclass.csv').astype(float)
+            self.budget = int(len(x_data) * self.budget_ratio)
+            command = "echo 'budget: " + str(self.budget) + "'"
+            subprocess.call(command, shell=True)
+            x_data = torch.from_numpy(x_data.values)
+            y_data = torch.from_numpy(y_data.values)
+            full_dataset = TensorDataset(x_data, y_data)
+            x_data = full_dataset.tensors[0].numpy()
+            x_data = torch.from_numpy(x_data).unsqueeze(1)
+            command = "echo 'x_data shape: " + str(x_data.shape) + "'"
+            subprocess.call(command, shell=True)
+            full_dataset = TensorDataset(x_data, full_dataset.tensors[1])
+
+            not_selected_data = Subset(full_dataset, not_selected_indice)
+            selected_data = Subset(full_dataset, selected_indice)
+            self.label_loader = DataLoader(indexed_Dataset.IndexedDataset(selected_data), batch_size=self.batch_size, shuffle=True, drop_last=False)
+            self.unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(not_selected_data), batch_size=self.batch_size, shuffle=True, drop_last=False)
         # Train the initial model over the label set
-        self.Model_trainer.initial_train(ini_train_loader, self.model, self.device, self.dtype, criterion=self.criterion, learning_rate=self.lr)
+        self.Model_trainer.initial_train(self.label_loader, self.model, self.device, self.dtype, criterion=self.criterion, learning_rate=self.lr)
         # Acquire pseudo labels of the unlabel set
         self.pseudo_labels = self.Model_trainer.psuedo_labeling(self.model, self.device, self.dtype, loader=self.unlabel_loader)
-        self.steps_per_epoch = np.ceil(int(len(self.unlabel_loader.dataset.dataset) * self.budget) / self.batch_size).astype(int)
-        command = "echo "
+        self.steps_per_epoch = np.ceil(int(len(self.unlabel_loader.dataset) * self.budget_ratio) / self.batch_size).astype(int)
+        # ---------------------print begin---------------------
+        command = "echo 'Steps per epoch: " + str(self.steps_per_epoch) + "'" 
         subprocess.call(command, shell=True)
+        # ---------------------print end---------------------
         print("Steps per epoch: ", self.steps_per_epoch)
 
  
     def train_epoch(self, epoch):
         print("Training epoch: ", epoch)
-        # self.steps_per_epoch = np.ceil(int(len(self.unlabel_loader.dataset.dataset) * 0.1) / self.batch_size).astype(int)
-        # print("Steps per epoch: ", self.steps_per_epoch)
         self.reset_step = self.steps_per_epoch
         # Training loop
         self.model.train()
         for training_step in range(self.steps_per_epoch * epoch, self.steps_per_epoch * (epoch + 1)):
+            # ---------------------print begin---------------------
+            command = "echo 'Training step: " + str(training_step) + "'"
+            subprocess.call(command, shell=True)
+            # ---------------------print end---------------------
             # Check the approximation error
             if((training_step > self.reset_step) and ((training_step - self.reset_step) % 2 == 0)): 
-                print("Checking approx error at step: ", training_step)
+                # print("Checking approx error at step: ", training_step)
+                # ---------------------print begin---------------------
+                command = "echo 'Checking approx error at step: " + str(training_step) + "'"
+                subprocess.call(command, shell=True)
                 self.check_approx_error(training_step)
+                command = "echo 'Approx error check complete!'"
+                subprocess.call(command, shell=True)
+                # ---------------------print end---------------------
+
             # Update the coreset
             if training_step == self.reset_step or training_step == 0:
-                print("Updating coreset at step: ", training_step)
+                # print("Updating coreset at step: ", training_step)
+                # ---------------------print begin---------------------
+                command = "echo 'Updating coreset at step: " + str(training_step) + "'"
+                subprocess.call(command, shell=True)
+                # ---------------------print end---------------------
+
+
                 self.gradients = self.Model_trainer.gradient_train(training_step, self.model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size=self.batch_size, criterion=self.criterion)
+                
+                
+                # ---------------------print begin---------------------
+                command = "echo 'select_subset at step: " + str(training_step) + "'"
+                subprocess.call(command, shell=True)
                 self.select_subset(training_step)
+                command = "echo 'select_subset complete!'"
+                subprocess.call(command, shell=True)
+                # ---------------------print end---------------------
+                
+                
                 self.update_train_loader_and_weights(training_step)
 
                 # Update the train loader and weights
@@ -114,15 +162,22 @@ class main_trainer():
                         self.stop = 1
                         break
                     self.final_coreset = ConcatDataset([self.final_coreset, Subset(self.unlabel_loader.dataset, self.coreset_index)])
-                command = "echo 'Final coreset length: " + str(len(self.final_coreset)) + "'"
+                # ---------------------print begin---------------------
+                command = "echo 'Final coreset length at step: " + str(training_step) + " is " + str(len(self.final_coreset)) + "'"
                 subprocess.call(command, shell=True)
+                # ---------------------print end---------------------
                 for weight in self.weights:
                     self.final_weights.append(weight)
 
                 self.train_loader = self.coreset_loader
                 self.train_iter = iter(self.train_loader)
+                # ---------------------print begin---------------------
+                command = "echo 'Quadratic approximation at step: " + str(training_step) + "'"
+                subprocess.call(command, shell=True)
                 self.get_quadratic_approximation()
-
+                command = "echo 'Quadratic approximation complete!'"
+                subprocess.call(command, shell=True)
+                # ---------------------print end---------------------
             try: 
                 batch = next(self.train_iter)
             except StopIteration:
@@ -131,11 +186,18 @@ class main_trainer():
 
             data, target, idx = batch
             data, target = data.to(self.device, dtype=self.dtype), target.to(self.device, dtype=self.dtype).squeeze().long()
+            # ---------------------print begin---------------------
+            command = "echo 'forward_and_backward at step: " + str(training_step) + "'"
+            subprocess.call(command, shell=True)
             self.forward_and_backward(data, target, idx)
+            command = "echo 'forward_and_backward at step: " + str(training_step) + " complete!'"
+            subprocess.call(command, shell=True)
+            # ---------------------print end---------------------
     
     def main_train(self, epoch):
         self.initial_training() # 在initial training就update delta?
-        print("Main training start!")
+        command = "echo 'Main training start!'"
+        subprocess.call(command, shell=True)
 
         for e in range(epoch):
             command = "echo 'Epoch: " + str(e) + "'"
@@ -151,7 +213,6 @@ class main_trainer():
         print("Main training complete!")
         self.test_accuracy_without_weight()
         self.test_accuracy_with_weight()
-
 
 
 
@@ -174,7 +235,7 @@ class main_trainer():
         # calculate true loss    
         true_loss = 0 
         count = 0 
-        subset_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.coreset_index), batch_size=self.batch_size, shuffle=False, drop_last=False)
+        subset_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.subsets), batch_size=self.batch_size, shuffle=False, drop_last=False)
         self.model.eval()
         for batch, (data, target, idx) in enumerate(subset_loader):
             self.optimizer.zero_grad()
@@ -218,9 +279,9 @@ class main_trainer():
         for batch, (input, target, idx) in enumerate (self.approx_loader):
             input = input.to(self.device, dtype=self.dtype)
             # pseudo_y = self.pseudo_labels[idx].to(self.device, dtype=self.dtype).squeeze().long()
-            target = target.to(self.device, dtype=self.dtype).squeeze().long()
+            pseudo_y = target.to(self.device, dtype=self.dtype).squeeze().long()
             output, _ = self.model(input)
-            loss = self.criterion(output, target)
+            loss = self.criterion(output, pseudo_y)
             batch_weight = self.train_weights[idx.long()]
             loss = (loss * batch_weight).mean()
             self.model.zero_grad()

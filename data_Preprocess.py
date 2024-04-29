@@ -85,7 +85,7 @@ def mini_K(centroids, full_dataset_pca, max_iters= 10, rs_rate=0.05, K=13):
             C[c_index] = (1 - n) * C[c_index] + n * x
     return C
 
-def cluster_sample(full_dataset, full_dataset_pca, C, batch_size, rs_rate = 0.01):
+def cluster_sample(full_dataset, full_dataset_pca, C, batch_size, rs_rate = 0.05):
     x_data = full_dataset_pca.tensors[0].numpy()
     distances = cdist(x_data, C, 'euclidean')  # Compute all distances from data points to centroids
     cluster_labels = np.argmin(distances, axis=1)  # Assign to the nearest centroid
@@ -126,12 +126,21 @@ def cluster_sample(full_dataset, full_dataset_pca, C, batch_size, rs_rate = 0.01
     command = "echo 'x_data shape: " + str(x_data.shape) + "'"
     subprocess.call(command, shell=True)
     full_dataset = TensorDataset(x_data, full_dataset.tensors[1])
-    not_selected_indice = np.setdiff1d(np.arange(full_length), np.concatenate(indices_list))
-    not_selected_data = Subset(full_dataset, not_selected_indice)
-    selected_data = Subset(full_dataset, np.concatenate(indices_list))
-    label_loader = DataLoader(indexed_Dataset.IndexedDataset(selected_data), batch_size=batch_size, shuffle=True, drop_last=False)
-    unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(not_selected_data), batch_size=batch_size, shuffle=True, drop_last=False)
-    return label_loader, unlabel_loader
+    # not_selected_indice = np.setdiff1d(np.arange(full_length), np.concatenate(indices_list))
+    
+    indices_list = [np.array(item).flatten() for item in indices_list]
+    selected_indices = np.concatenate(indices_list)
+    not_selected_indice = np.setdiff1d(np.arange(full_length), selected_indices)
+
+    np.save('/vol/bitbucket/kp620/FYP/dataset/not_selected_indice.npy', not_selected_indice)
+    np.save('/vol/bitbucket/kp620/FYP/dataset/selected_indice.npy', selected_indices)
+    
+
+    # not_selected_data = Subset(full_dataset, not_selected_indice)
+    # selected_data = Subset(full_dataset, np.concatenate(indices_list))
+    # label_loader = DataLoader(indexed_Dataset.IndexedDataset(selected_data), batch_size=batch_size, shuffle=True, drop_last=False)
+    # unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(not_selected_data), batch_size=batch_size, shuffle=True, drop_last=False)
+    # return label_loader, unlabel_loader
 
 
 def main(batch_size, rs_rate, class_type, budget):
@@ -151,5 +160,9 @@ def main(batch_size, rs_rate, class_type, budget):
     command = "echo 'mini_K finished'"
     subprocess.call(command, shell=True)
 
-    label_loader, unlabel_loader = cluster_sample(full_dataset, full_dataset_pca, C, batch_size=batch_size, rs_rate = rs_rate)
-    return label_loader, unlabel_loader, budget
+    cluster_sample(full_dataset, full_dataset_pca, C, batch_size=batch_size, rs_rate = rs_rate)
+
+    # label_loader, unlabel_loader = cluster_sample(full_dataset, full_dataset_pca, C, batch_size=batch_size, rs_rate = rs_rate)
+    # return label_loader, unlabel_loader, budget
+
+# main(1024, 0.05, "multi", 0.1)
