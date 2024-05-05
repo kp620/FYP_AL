@@ -37,7 +37,7 @@ def random_sampling(x_data, y_data, selection_rate):
     y_not_selected = y_data[not_selected_indices]
     return x_selected, x_not_selected, y_selected, y_not_selected
 
-def uncertainty_sampling(model, x_data, y_data, selection_rate, device = device, dtype = dtype, batch_size = 128):
+def uncertainty_sampling(model, x_data, y_data, selection_rate, device = device, dtype = dtype, batch_size = 1024):
     # Make sure the model is in evaluation mode
     model.eval()
 
@@ -117,13 +117,13 @@ x_data, y_data = load_data()
 
 AL_iter = 10
 selection_budget = 0.03
-num_epochs = 30
+num_epochs = 50
 
 
 x_train, x_data, y_train, y_data = random_sampling(x_data, y_data, (selection_budget/AL_iter))
 print("length of x_train: ", len(x_train))
-train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=128, shuffle=True)
-test_loader = DataLoader(TensorDataset(x_data, y_data), batch_size=128, shuffle=True)
+train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=1024, shuffle=True)
+test_loader = DataLoader(TensorDataset(x_data, y_data), batch_size=1024, shuffle=True)
 model = restnet_1d_multi.build_model().to(device=device)
 optimizer = optim.Adam(model.parameters(), lr=0.00001)
 criterion = torch.nn.CrossEntropyLoss()
@@ -139,12 +139,12 @@ def US_Model(us_model, x_data, y_data, x_train, y_train):
         x_selected, x_data, y_selected, y_data = uncertainty_sampling(us_model, x_data, y_data, selection_budget/AL_iter)
         x_train = torch.cat((x_train, x_selected.to('cpu')), dim=0)
         y_train = torch.cat((y_train, y_selected.to('cpu')), dim=0)
-        train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=128, shuffle=True)
+        train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=1024, shuffle=True)
         us_model = train_model(us_model, train_loader, device, dtype, criterion, optimizer, num_epochs)
 
     print("length of x_train: ", len(x_train))
 
-    test_loader = DataLoader(TensorDataset(x_data, y_data), batch_size=128, shuffle=True)
+    test_loader = DataLoader(TensorDataset(x_data, y_data), batch_size=1024, shuffle=True)
     eval_model(us_model, test_loader, device, dtype)
 
 US_Model(us_model, x_data, y_data, x_train, y_train)

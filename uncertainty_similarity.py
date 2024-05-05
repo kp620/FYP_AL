@@ -21,7 +21,6 @@ def cal_uncertainties(model, unlabel_loader, device, dtype):
 
 def cal_similarities(label_loader, unlabel_loader, sigma, device, dtype):
     # Collect all label features into a single tensor
-    # label_features = torch.cat([data[0].squeeze(1).to(device) for data in label_loader], dim=0)
     label_features = []
     for data, _ ,_ in label_loader:
         features = data.squeeze(1).to(device)  # Adjust processing as needed
@@ -31,8 +30,6 @@ def cal_similarities(label_loader, unlabel_loader, sigma, device, dtype):
     similarities = []
     for inputs, _, _ in unlabel_loader:
         inputs = inputs.squeeze(1).to(device)
-        # print("Input features shape:", inputs.shape)  # Should be [batch_size, num_features]
-        # print("Label features shape:", label_features.shape)  # Should be [num_label_samples, num_features]
         # Expand dimensions for broadcasting and calculate distances
         distances = torch.cdist(inputs, label_features)
         min_distances = torch.min(distances, dim=1).values
@@ -41,8 +38,8 @@ def cal_similarities(label_loader, unlabel_loader, sigma, device, dtype):
     
     return np.concatenate(similarities)
 
-def continuous_states(label_loader, unlabel_loader, model, device, dtype, alpha, beta, sigma):
+def continuous_states(label_loader, unlabel_loader, model, device, dtype, alpha, sigma):
     uncertainties = cal_uncertainties(model, unlabel_loader, device, dtype)
     similarities = cal_similarities(label_loader, unlabel_loader, sigma, device, dtype)
-    continuous_states = alpha * uncertainties + beta * (1 - similarities)
+    continuous_states = alpha * uncertainties + (1-alpha) * (1 - similarities)
     return continuous_states

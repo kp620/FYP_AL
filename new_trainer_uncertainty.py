@@ -1,6 +1,6 @@
 # --------------------------------
 # Import area
-import test_Cuda, model_Trainer, data_Wrapper, approx_Optimizer, restnet_1d, facility_Update, indexed_Dataset, data_Preprocess, uncertainty_similarity
+import test_Cuda, model_Trainer, data_Wrapper, approx_Optimizer, restnet_1d, facility_Update, indexed_Dataset, uncertainty_similarity
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -57,7 +57,7 @@ class main_trainer():
         self.ggf = 0
         self.ggf_moment = 0
         self.start_loss = 0
-        self.rs_rate = 0.005 # In IID, the rate of random sampling that is used to train the initial model
+        # self.rs_rate = 0.001 # In IID, the rate of random sampling that is used to train the initial model
         self.budget_ratio = self.args.budget # Budget
         self.budget = 0
         self.gradients = [] # Gradients of the unlabel set
@@ -70,6 +70,9 @@ class main_trainer():
         self.final_coreset = None
         self.gradient_approx_optimizer = approx_Optimizer.Adahessian(self.model.parameters())
         self.stop = 0
+        self.alpha = 0.25
+        self.alpha_max = 0.75
+        self.sigma = 0.4
     
     
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
@@ -78,10 +81,13 @@ class main_trainer():
         if(self.args.operation_type == 'iid'): 
             command = "echo 'Loading data...'"
             subprocess.call(command, shell=True)
-            # self.label_loader, self.unlabel_loader, self.budget = data_Preprocess.main(batch_size=self.batch_size, rs_rate=self.rs_rate, class_type=self.args.class_type, budget=self.budget_ratio)
             data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
             selected_indice = np.load(f'{data_dic_path}/selected_indice.npy')
             not_selected_indice = np.load(f'{data_dic_path}/not_selected_indice.npy')
+            command = "echo 'len selected_indice: " + str(len(selected_indice)) + "'"
+            subprocess.call(command, shell=True)
+            command = "echo 'len not_selected_indice: " + str(len(not_selected_indice)) + "'"
+            subprocess.call(command, shell=True)
             x_data = pd.read_csv(f'{data_dic_path}/x_data_iid_multiclass.csv').astype(float)
             y_data = pd.read_csv(f'{data_dic_path}/y_data_iid_multiclass.csv').astype(float)
             self.budget = int(len(x_data) * self.budget_ratio)
@@ -157,7 +163,8 @@ class main_trainer():
                 # ---------------------print end---------------------
 
                 # ---------------------print begin---------------------
-                continuous_state = uncertainty_similarity.continuous_states(self.label_loader, self.unlabel_loader, self.model, self.device, self.dtype, alpha=0.5, beta=0.5, sigma=0.5)
+                continuous_state = uncertainty_similarity.continuous_states(self.label_loader, self.unlabel_loader, self.model, self.device, self.dtype, alpha=self.alpha, sigma=self.sigma)
+                self.alpha = min(self.alpha + 0.01, self.alpha_max)
                 continuous_state = continuous_state[:, None]
                 command = "echo 'Continuous state shape: " + str(len(continuous_state)) + "'"
                 subprocess.call(command, shell=True)
@@ -199,7 +206,8 @@ class main_trainer():
                 # ---------------------print end---------------------
                 
 
-                self.label_loader = ConcatDataset([self.label_loader, Subset(self.unlabel_loader.dataset, self.coreset_index)])
+                self.label_loader = ConcatDataset([self.label_loader.dataset.dataset, Subset(self.unlabel_loader.dataset.dataset, self.coreset_index)])
+                self.label_loader = DataLoader(indexed_Dataset.IndexedDataset(self.label_loader), batch_size=self.batch_size, shuffle=True, drop_last=False)
                 self.train_loader = self.coreset_loader
                 self.train_iter = iter(self.train_loader)
                 # ---------------------print begin---------------------
@@ -523,4 +531,4 @@ class main_trainer():
         subprocess.call(command, shell=True)
     
 caller = main_trainer(args=args)
-caller.main_train(5)
+caller.main_train(10)

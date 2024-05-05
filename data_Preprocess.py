@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 
 # Load training data
-def load_data(class_type, budget):
+def load_data(class_type):
     print("Loading data...")
     data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
     if(class_type == "binary"):
@@ -21,16 +21,13 @@ def load_data(class_type, budget):
         y_data = pd.read_csv(f'{data_dic_path}/y_data_iid_multiclass.csv').astype(float)
     print('Full Data Loaded!')
     print('Fulll Data Length: ', len(x_data))
-    budget = int(len(x_data) * budget)
-    command = "echo 'budget: " + str(budget) + "'"
-    subprocess.call(command, shell=True)
     # x_data = torch.from_numpy(x_data.values).unsqueeze(1)
     x_data = torch.from_numpy(x_data.values)
     y_data = torch.from_numpy(y_data.values)
     unique_labels = y_data.unique().tolist()
     print("Unique labels: ", len(unique_labels))
     full_dataset = TensorDataset(x_data, y_data)
-    return full_dataset, budget
+    return full_dataset
 
 def self_PCA(full_dataset, d = 3):
     x_data = full_dataset.tensors[0].numpy()
@@ -136,15 +133,9 @@ def cluster_sample(full_dataset, full_dataset_pca, C, batch_size, rs_rate = 0.05
     np.save('/vol/bitbucket/kp620/FYP/dataset/selected_indice.npy', selected_indices)
     
 
-    # not_selected_data = Subset(full_dataset, not_selected_indice)
-    # selected_data = Subset(full_dataset, np.concatenate(indices_list))
-    # label_loader = DataLoader(indexed_Dataset.IndexedDataset(selected_data), batch_size=batch_size, shuffle=True, drop_last=False)
-    # unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(not_selected_data), batch_size=batch_size, shuffle=True, drop_last=False)
-    # return label_loader, unlabel_loader
 
-
-def main(batch_size, rs_rate, class_type, budget):
-    full_dataset, budget = load_data(class_type, budget)
+def main(batch_size, rs_rate, class_type):
+    full_dataset = load_data(class_type)
     command = "echo 'loading finished'"
     subprocess.call(command, shell=True)
 
@@ -162,7 +153,5 @@ def main(batch_size, rs_rate, class_type, budget):
 
     cluster_sample(full_dataset, full_dataset_pca, C, batch_size=batch_size, rs_rate = rs_rate)
 
-    # label_loader, unlabel_loader = cluster_sample(full_dataset, full_dataset_pca, C, batch_size=batch_size, rs_rate = rs_rate)
-    # return label_loader, unlabel_loader, budget
 
-# main(1024, 0.05, "multi", 0.1)
+main(1024, 0.001, "multi")

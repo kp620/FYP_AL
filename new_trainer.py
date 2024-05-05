@@ -150,6 +150,8 @@ class main_trainer():
                 subprocess.call(command, shell=True)
                 # ---------------------print end---------------------
                 
+                for weight in self.weights:
+                    self.final_weights.append(weight)
                 
                 self.update_train_loader_and_weights(training_step)
 
@@ -166,8 +168,7 @@ class main_trainer():
                 command = "echo 'Final coreset length at step: " + str(training_step) + " is " + str(len(self.final_coreset)) + "'"
                 subprocess.call(command, shell=True)
                 # ---------------------print end---------------------
-                for weight in self.weights:
-                    self.final_weights.append(weight)
+                
 
                 self.train_loader = self.coreset_loader
                 self.train_iter = iter(self.train_loader)
@@ -431,6 +432,7 @@ class main_trainer():
         coreset_loader = DataLoader(coreset, batch_size=128, shuffle=False, drop_last=True)
         weights = self.final_weights
         weights = np.array(weights)
+        weights = weights / np.sum(weights) * len(coreset)
         weights = torch.from_numpy(weights).float().to(self.device)
         # weights = weights / torch.sum(weights)
 
