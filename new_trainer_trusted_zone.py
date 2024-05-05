@@ -52,7 +52,7 @@ class main_trainer():
         self.coreset_loader = DataLoader # Coreset dataset
         self.budget = 0 # Budget
         self.check_thresh_factor = 0.1
-        self.delta = 0 
+        self.delta = 1.0 
         self.gf = 0 
         self.ggf = 0
         self.ggf_moment = 0
@@ -74,6 +74,7 @@ class main_trainer():
         self.alpha_max = 0.75
         self.sigma = 0.4
         self.eigenv = None
+        self.optimal_step = None
     
     
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
@@ -147,13 +148,12 @@ class main_trainer():
             subprocess.call(command, shell=True)
             # ---------------------print end---------------------
             # Check the approximation error
-            if((training_step > self.reset_step) and ((training_step - self.reset_step) % 2 == 0)): 
-                # print("Checking approx error at step: ", training_step)
+            if((training_step >= self.reset_step) and ((training_step - self.reset_step) % self.steps_per_epoch == 0)): 
                 # ---------------------print begin---------------------
-                command = "echo 'Checking approx error at step: " + str(training_step) + "'"
+                command = "echo 'Extend coreset at step: " + str(training_step) + "'"
                 subprocess.call(command, shell=True)
-                self.check_approx_error(training_step)
-                command = "echo 'Approx error check complete!'"
+                self.extend_coreset(training_step)
+                command = "echo 'Extend coreset complete!'"
                 subprocess.call(command, shell=True)
                 # ---------------------print end---------------------
 
@@ -246,9 +246,6 @@ class main_trainer():
             subprocess.call(command, shell=True)
             self.train_epoch(e)
 
-            self.test_accuracy_without_weight()
-            self.test_accuracy_with_weight()
-
             if self.stop == 1:
                 break
 
@@ -260,57 +257,61 @@ class main_trainer():
 
 # --------------------------------
 # Auxiliary functions     
+    def apply_fractional_optimal_step(self):
+        # Apply a fraction of the optimal step
+        fraction = self.optimal_step / self.steps_per_epoch
+        with torch.no_grad():
+            for param, fr in zip(self.model.parameters(), fraction):
+                param -= fr
+
     def forward_and_backward(self, data, target, idx):
         self.optimizer.zero_grad()
         output, _ = self.model(data)
         loss = self.criterion(output, target)
         loss = (loss * self.train_weights[idx]).mean()
         self.model.zero_grad()
-        loss.backward(create_graph=True)
-        gf_current, _, _ = self.gradient_approx_optimizer.step(momentum=False)         
-        self.delta -= self.lr * gf_current
         loss.backward()
         self.optimizer.step()
+        self.apply_fractional_optimal_step()
 
-
-    def check_approx_error(self, training_step):
-        # calculate true loss    
+    def extend_coreset(self, training_step):   
         true_loss = 0 
         count = 0 
-        subset_loader = DataLoader(Subset(self.unlabel_loader.dataset, self.subsets), batch_size=self.batch_size, shuffle=False, drop_last=False)
+        self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, indices=self.coreset_index), batch_size=self.batch_size, shuffle=False, drop_last=False)
         self.model.eval()
-        for batch, (data, target, idx) in enumerate(subset_loader):
-            self.optimizer.zero_grad()
+        for batch, (data, target, idx) in enumerate(self.approx_loader):
             data = data.to(self.device, dtype=self.dtype)
             # pseudo_y = self.pseudo_labels[idx].to(self.device, dtype=self.dtype).squeeze().long()
             pseudo_y = target.to(self.device, dtype=self.dtype).squeeze().long()
             output,_ = self.model(data)
             loss = self.criterion(output, pseudo_y)
             loss.backward()
-            self.optimizer.step()
             true_loss += loss.item() * data.size(0)
             count += data.size(0)
-
         self.model.train()
-        true_loss = true_loss / count
-        approx_loss = torch.matmul(self.delta, self.gf) + self.start_loss
-        approx_loss += 1/2 * torch.matmul(self.delta * self.ggf, self.delta)
-        loss_diff = abs(true_loss - approx_loss.item())
-        print("true loss: ", true_loss)
-        print("approx loss: ", approx_loss)
-        print("diff: ", loss_diff)
 
-        thresh = self.check_thresh_factor * true_loss                          
-        if loss_diff > thresh:
-            print("Loss diff is larger than threshold, updating coreset at step: ", training_step)
-            self.reset_step = training_step
-            all_indices = set(range(len(self.unlabel_loader.dataset)))
-            coreset_indices = set(self.coreset_index)
-            remaining_indices = list(all_indices - coreset_indices)
-            unlabel_set = self.unlabel_loader.dataset.dataset
-            unlabel_set = Subset(unlabel_set, remaining_indices)
-            self.unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(unlabel_set), batch_size=self.batch_size, shuffle=False, drop_last=False)
-            self.pseudo_labels = self.Model_trainer.psuedo_labeling(self.model, self.device, self.dtype, loader=self.unlabel_loader)
+        true_loss = true_loss / count
+        approx_loss = torch.matmul(self.optimal_step, self.gf) + self.start_loss
+        approx_loss += 1/2 * torch.matmul(self.optimal_step * self.ggf, self.optimal_step)
+        
+        actual_reduction = self.start_loss - true_loss
+        approx_reduction = self.start_loss - approx_loss
+        rho = actual_reduction / approx_reduction
+        command = "echo 'Rho at step: " + str(training_step) + " is " + str(rho) + "'"
+        subprocess.call(command, shell=True)
+        if rho > 0.75:
+            self.delta *= 2  # Expand the trust region
+        elif rho < 0.1:
+            self.delta *= 0.5  # Contract the trust region
+
+        self.reset_step = training_step
+        all_indices = set(range(len(self.unlabel_loader.dataset)))
+        coreset_indices = set(self.coreset_index)
+        remaining_indices = list(all_indices - coreset_indices)
+        unlabel_set = self.unlabel_loader.dataset.dataset
+        unlabel_set = Subset(unlabel_set, remaining_indices)
+        self.unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(unlabel_set), batch_size=self.batch_size, shuffle=False, drop_last=False)
+        self.pseudo_labels = self.Model_trainer.psuedo_labeling(self.model, self.device, self.dtype, loader=self.unlabel_loader)
             
     
     def get_quadratic_approximation(self):
@@ -345,7 +346,14 @@ class main_trainer():
         self.ggf /= len(self.approx_loader.dataset)
         self.ggf_moment /= len(self.approx_loader.dataset)
         self.start_loss = self.start_loss / count 
-        self.delta = 0
+        
+        # Calculate step using the trust region constraint
+        diag_H_inv = 1.0 / self.ggf  # Element-wise inverse of the Hessian diagonal approximation
+        step = -diag_H_inv * self.gf
+        step_norm = torch.norm(step)
+        if step_norm > self.delta:
+            step *= self.delta / step_norm  # Scale step to fit within the trust region
+        self.optimal_step = step
         print("Quadratic approximation complete!")
 
     def update_train_loader_and_weights(self, training_step):
@@ -534,4 +542,4 @@ class main_trainer():
         subprocess.call(command, shell=True)
     
 caller = main_trainer(args=args)
-caller.main_train(10)
+caller.main_train(200)

@@ -39,7 +39,7 @@ def self_PCA(full_dataset, d = 3):
     eigvecs_d = eigvecs[:, :d]
     x_data_reduced = np.dot(x_data_centered, eigvecs_d)
     full_dataset_pca = TensorDataset(torch.from_numpy(x_data_reduced), full_dataset.tensors[1])
-    return full_dataset_pca
+    return full_dataset_pca, eigvecs_d
     
 
 def Kmeansplusplus(full_dataset_pca, K=13):
@@ -139,19 +139,20 @@ def main(batch_size, rs_rate, class_type):
     command = "echo 'loading finished'"
     subprocess.call(command, shell=True)
 
-    full_dataset_pca = self_PCA(full_dataset, d = 10)
+    full_dataset_pca, eigenv_d = self_PCA(full_dataset, d = 10)
+    np.save('/vol/bitbucket/kp620/FYP/dataset/eigvecs_d.npy', eigenv_d)
     command = "echo 'PCA finished'"
     subprocess.call(command, shell=True)
 
-    centroids = Kmeansplusplus(full_dataset_pca)
-    command = "echo 'Kmeans++ finished'"
-    subprocess.call(command, shell=True)
+    # centroids = Kmeansplusplus(full_dataset_pca)
+    # command = "echo 'Kmeans++ finished'"
+    # subprocess.call(command, shell=True)
 
-    C = mini_K(centroids, full_dataset_pca)
-    command = "echo 'mini_K finished'"
-    subprocess.call(command, shell=True)
+    # C = mini_K(centroids, full_dataset_pca)
+    # command = "echo 'mini_K finished'"
+    # subprocess.call(command, shell=True)
 
-    cluster_sample(full_dataset, full_dataset_pca, C, batch_size=batch_size, rs_rate = rs_rate)
+    # cluster_sample(full_dataset, full_dataset_pca, C, batch_size=batch_size, rs_rate = rs_rate)
 
 
 main(1024, 0.001, "multi")
