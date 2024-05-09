@@ -1,7 +1,7 @@
 import torch
 import sys 
 sys.path.append('../')
-import test_Cuda, restnet_1d, restnet_1d_multi
+import test_Cuda, restnet_1d, restnet_1d_test, restnet_1d_multi
 import pandas as pd
 from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
@@ -9,9 +9,16 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 import numpy as np
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+import argparse
 
 device, dtype = test_Cuda.check_device()
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--operation_type",  choices=['iid', 'time-aware'], help='Specify operation type: "iid" or "time-aware"')
+parser.add_argument("--class_type", choices=['binary', 'multi'], help='Specify class type: "binary" or "multi"')
+parser.add_argument("--budget", type=float, help='Specify the budget')
+args = parser.parse_args()
 
 def load_data():
     print("Loading data...")
@@ -41,7 +48,7 @@ model = restnet_1d_multi.build_model()
 model.to(device=device)
 x_data, y_data = load_data()
 
-x_selected, x_not_selected, y_selected, y_not_selected = random_sampling(x_data, y_data, 0.0025)
+x_selected, x_not_selected, y_selected, y_not_selected = random_sampling(x_data, y_data, args.budget)
 print("x_selected length: ", len(x_selected))
 
 train_loader = DataLoader(TensorDataset(x_selected, y_selected), batch_size=1024, shuffle=True)
@@ -87,5 +94,7 @@ accuracy = accuracy_score(targets, predictions)
 precision = precision_score(targets, predictions, average='macro')
 recall = recall_score(targets, predictions, average='macro')
 f1 = f1_score(targets, predictions, average='macro')
+confusion_matrix_result = confusion_matrix(targets, predictions)
 print(f'Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1: {f1}')
+print(f'Confusion Matrix: {confusion_matrix_result}')
 
