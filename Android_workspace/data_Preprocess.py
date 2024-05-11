@@ -6,7 +6,6 @@ import indexed_Dataset
 from scipy.spatial.distance import cdist
 import subprocess
 from sklearn.decomposition import PCA
-import matplotlib.pyplot as plt
 import os
 
 def load_file(file):
@@ -17,9 +16,9 @@ def load_file(file):
     return x_train, y_train, y_mal_family
 
 # Load training data
-def load_data(class_type):
+def load_data():
     print("Loading data...")
-    directory = '/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_androzoo_drebin'
+    directory = '/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin'
 
     x_train = []
     y_train = []
@@ -38,7 +37,7 @@ def load_data(class_type):
     x_data = pd.DataFrame(x_train).astype(float)
     y_data = pd.DataFrame(y_train).astype(float)
     print('Full Data Loaded!')
-    print('Fulll Data Length: ', len(x_data))
+    print('Full Data Length: ', len(x_data))
     # x_data = torch.from_numpy(x_data.values).unsqueeze(1)
     x_data = torch.from_numpy(x_data.values)
     y_data = torch.from_numpy(y_data.values)
@@ -47,7 +46,7 @@ def load_data(class_type):
     full_dataset = TensorDataset(x_data, y_data)
     return full_dataset
 
-def self_PCA(full_dataset, d = 3):
+def self_PCA(full_dataset, d = 1000):
     x_data = full_dataset.tensors[0].numpy()
     x_data_mean = np.mean(x_data, axis=0)
     x_data_centered = x_data - x_data_mean
@@ -60,7 +59,7 @@ def self_PCA(full_dataset, d = 3):
     return full_dataset_pca, eigvecs_d
     
 
-def Kmeansplusplus(full_dataset_pca, K=13):
+def Kmeansplusplus(full_dataset_pca, K=485):
     # Kmeans++ initialization
     x_data = full_dataset_pca.tensors[0].numpy()
     N = len(x_data)
@@ -76,7 +75,7 @@ def Kmeansplusplus(full_dataset_pca, K=13):
         centroids.append(x_data[np.random.choice(N, p=probabilities)])
     return centroids
 
-def mini_K(centroids, full_dataset_pca, max_iters= 10, rs_rate=0.05, K=13):
+def mini_K(centroids, full_dataset_pca, max_iters= 10, rs_rate=0.05, K=485):
     x_data = full_dataset_pca.tensors[0].numpy()
     v = np.zeros(K)  # Count
     n = 1 / (v + 1)  # Learning rate (n)
@@ -100,7 +99,7 @@ def mini_K(centroids, full_dataset_pca, max_iters= 10, rs_rate=0.05, K=13):
             C[c_index] = (1 - n) * C[c_index] + n * x
     return C
 
-def cluster_sample(full_dataset, full_dataset_pca, C, batch_size, rs_rate = 0.05):
+def cluster_sample(full_dataset, full_dataset_pca, C, rs_rate = 0.05):
     x_data = full_dataset_pca.tensors[0].numpy()
     distances = cdist(x_data, C, 'euclidean')  # Compute all distances from data points to centroids
     cluster_labels = np.argmin(distances, axis=1)  # Assign to the nearest centroid
@@ -146,31 +145,33 @@ def cluster_sample(full_dataset, full_dataset_pca, C, batch_size, rs_rate = 0.05
     indices_list = [np.array(item).flatten() for item in indices_list]
     selected_indices = np.concatenate(indices_list)
     not_selected_indice = np.setdiff1d(np.arange(full_length), selected_indices)
+    print('Selected indices: ', len(selected_indices))
+    print('Not selected indices: ', len(not_selected_indice))
 
-    np.save('/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_androzoo_drebin/not_selected_indice.npy', not_selected_indice)
-    np.save('/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_androzoo_drebin/selected_indice.npy', selected_indices)
+    np.save('/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin/not_selected_indice.npy', not_selected_indice)
+    np.save('/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin/selected_indice.npy', selected_indices)
     
 
 
-def main(batch_size, rs_rate, class_type):
-    full_dataset = load_data(class_type)
+def main(rs_rate):
+    full_dataset = load_data()
     command = "echo 'loading finished'"
     subprocess.call(command, shell=True)
 
-    full_dataset_pca, eigenv_d = self_PCA(full_dataset, d = 10)
-    np.save('/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_androzoo_drebin/eigvecs_d.npy', eigenv_d)
+    full_dataset_pca, eigenv_d = self_PCA(full_dataset, d = 1000)
+    np.save('/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin/eigvecs_d.npy', eigenv_d)
     command = "echo 'PCA finished'"
     subprocess.call(command, shell=True)
 
-    centroids = Kmeansplusplus(full_dataset_pca)
+    centroids = Kmeansplusplus(full_dataset_pca, K=485)
     command = "echo 'Kmeans++ finished'"
     subprocess.call(command, shell=True)
 
-    C = mini_K(centroids, full_dataset_pca)
+    C = mini_K(centroids, full_dataset_pca, max_iters= 10, rs_rate=rs_rate, K=485)
     command = "echo 'mini_K finished'"
     subprocess.call(command, shell=True)
 
-    cluster_sample(full_dataset, full_dataset_pca, C, batch_size=batch_size, rs_rate = rs_rate)
+    cluster_sample(full_dataset, full_dataset_pca, C, rs_rate = rs_rate)
 
 
-main(1024, 0.001, "multi")
+main(0.03)

@@ -121,13 +121,6 @@ def get_orders_and_weights(
             enumerate(classes),
         )
     )
-#     order_mg_all, cluster_sizes_all = zip(
-#     *[
-#         facility_location_order(c[1], X, y, metric, num_per_class[c[0]], weights, mode, num_n)
-#         for c in enumerate(classes)
-#         if facility_location_order(c[1], X, y, metric, num_per_class[c[0]], weights, mode, num_n) != ([-1], [-1])
-#     ]
-# )
 
     
     

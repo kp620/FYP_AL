@@ -1,6 +1,6 @@
 # --------------------------------
 # Import area
-import test_Cuda, model_Trainer, data_Wrapper, approx_Optimizer, restnet_1d, facility_Update, indexed_Dataset, uncertainty_similarity
+import test_Cuda, model_Trainer, approx_Optimizer, restnet_1d, facility_Update, indexed_Dataset, uncertainty_similarity
 import torch
 import torch.nn as nn
 import torch.optim as optim

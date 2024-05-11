@@ -7,18 +7,14 @@ from scipy.spatial.distance import cdist
 import subprocess
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
-
+import argparse
 
 # Load training data
-def load_data(class_type):
+def load_data():
     print("Loading data...")
     data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
-    if(class_type == "binary"):
-        x_data = pd.read_csv(f'{data_dic_path}/x_data_iid_binary.csv').astype(float)
-        y_data = pd.read_csv(f'{data_dic_path}/y_data_iid_binary.csv').astype(float)
-    elif(class_type == "multi"):
-        x_data = pd.read_csv(f'{data_dic_path}/x_data_iid_multiclass.csv').astype(float)
-        y_data = pd.read_csv(f'{data_dic_path}/y_data_iid_multiclass.csv').astype(float)
+    x_data = pd.read_csv(f'{data_dic_path}/x_data_iid_multiclass.csv').astype(float)
+    y_data = pd.read_csv(f'{data_dic_path}/y_data_iid_multiclass.csv').astype(float)
     print('Full Data Loaded!')
     print('Fulll Data Length: ', len(x_data))
     # x_data = torch.from_numpy(x_data.values).unsqueeze(1)
@@ -82,7 +78,7 @@ def mini_K(centroids, full_dataset_pca, max_iters= 10, rs_rate=0.05, K=13):
             C[c_index] = (1 - n) * C[c_index] + n * x
     return C
 
-def cluster_sample(full_dataset, full_dataset_pca, C, batch_size, rs_rate = 0.05):
+def cluster_sample(full_dataset, full_dataset_pca, C, rs_rate = 0.05):
     x_data = full_dataset_pca.tensors[0].numpy()
     distances = cdist(x_data, C, 'euclidean')  # Compute all distances from data points to centroids
     cluster_labels = np.argmin(distances, axis=1)  # Assign to the nearest centroid
@@ -100,24 +96,7 @@ def cluster_sample(full_dataset, full_dataset_pca, C, batch_size, rs_rate = 0.05
         # Sample indices
         sampled_indices = np.random.choice(indices_in_cluster, size=sample_size, replace=False)
         indices_list.append(sampled_indices)
-
-
-    # ----------------- visualization -----------------
-
-    # pca = PCA(n_components=2)
-    # x_reduced = pca.fit_transform(x_data)
-
-    # plt.figure(figsize=(10, 8))
-    # scatter = plt.scatter(x_reduced[:, 0], x_reduced[:, 1], c=cluster_labels, alpha=0.5, cmap='viridis')
-    # plt.colorbar(scatter)
-    # plt.title('Cluster Visualization')
-    # plt.xlabel('Principal Component 1')
-    # plt.ylabel('Principal Component 2')
-    # plt.show()
-    # plt.savefig('/vol/bitbucket/kp620/FYP/cluster.png', format='png', dpi=300)  # Adjust format and dpi as needed
-    # plt.close()
-
-    # ----------------- visualization -----------------
+    
     x_data = full_dataset.tensors[0].numpy()
     x_data = torch.from_numpy(x_data).unsqueeze(1)
     command = "echo 'x_data shape: " + str(x_data.shape) + "'"
@@ -134,25 +113,31 @@ def cluster_sample(full_dataset, full_dataset_pca, C, batch_size, rs_rate = 0.05
     
 
 
-def main(batch_size, rs_rate, class_type):
-    full_dataset = load_data(class_type)
+def main(rs_rate = 0.001, d = 10, K = 15):
+    full_dataset = load_data()
     command = "echo 'loading finished'"
     subprocess.call(command, shell=True)
 
-    full_dataset_pca, eigenv_d = self_PCA(full_dataset, d = 10)
+    full_dataset_pca, eigenv_d = self_PCA(full_dataset, d = d)
     np.save('/vol/bitbucket/kp620/FYP/dataset/eigvecs_d.npy', eigenv_d)
     command = "echo 'PCA finished'"
     subprocess.call(command, shell=True)
 
-    # centroids = Kmeansplusplus(full_dataset_pca)
-    # command = "echo 'Kmeans++ finished'"
-    # subprocess.call(command, shell=True)
+    centroids = Kmeansplusplus(full_dataset_pca, K = K)
+    command = "echo 'Kmeans++ finished'"
+    subprocess.call(command, shell=True)
 
-    # C = mini_K(centroids, full_dataset_pca)
-    # command = "echo 'mini_K finished'"
-    # subprocess.call(command, shell=True)
+    C = mini_K(centroids, full_dataset_pca, max_iters= 10, rs_rate=rs_rate, K=K)
+    command = "echo 'mini_K finished'"
+    subprocess.call(command, shell=True)
 
-    # cluster_sample(full_dataset, full_dataset_pca, C, batch_size=batch_size, rs_rate = rs_rate)
+    cluster_sample(full_dataset, full_dataset_pca, C, rs_rate = rs_rate)
 
 
-main(1024, 0.001, "multi")
+parser = argparse.ArgumentParser()
+parser.add_argument("--rs_rate",  type=float, help='Specify random sampling rate')
+parser.add_argument("--d", type=float, help='Specify the dimension of PCA')
+parser.add_argument("--K", type=float, help='Specify the number of clusters')
+args = parser.parse_args()
+
+main(args.rs_rate, args.d, args.K)

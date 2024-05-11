@@ -1,4 +1,4 @@
-import restnet_1d
+import restnet_1d_android as restnet_1d
 
 def initial_train(train_loader, model, device, dtype, criterion, learning_rate):
     print("Initial training started...")

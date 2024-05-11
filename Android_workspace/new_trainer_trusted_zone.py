@@ -1,6 +1,9 @@
 # --------------------------------
 # Import area
-import test_Cuda, model_Trainer, approx_Optimizer, restnet_1d, facility_Update, indexed_Dataset, uncertainty_similarity
+import test_Cuda, approx_Optimizer, indexed_Dataset, uncertainty_similarity
+import restnet_1d_android as restnet_1d
+import facility_Update_Android as facility_Update
+import model_Trainer_Android as model_Trainer
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -11,6 +14,7 @@ import subprocess
 import pandas as pd
 import argparse
 import os
+import glob
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
 # --------------------------------
@@ -35,7 +39,7 @@ class main_trainer():
         self.Model_trainer = model_Trainer # Model trainer
         self.Model = restnet_1d # Model
         self.model = self.Model.build_model(class_type=self.args.class_type) # Model used to train the data(M_0)
-        self.batch_size = 128 # Batch size
+        self.batch_size = 1024 # Batch size
         self.lr = 0.00001 # Learning rate
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=0.0001) # Optimizer
         self.criterion = nn.CrossEntropyLoss() # Loss function
@@ -77,12 +81,20 @@ class main_trainer():
         self.eigenv = None
         self.optimal_step = None
     
-    def load_file(self,file):
+    def load_file(self, file):
         data = np.load(file)
         x_train = data['X_train']
         y_train = data['y_train']
         y_mal_family = data['y_mal_family']
         return x_train, y_train, y_mal_family
+    
+    def random_sampling(self, x_data, selection_rate):
+        num_samples = x_data.shape[0]
+        num_select = int(num_samples * selection_rate)
+        all_indices = torch.randperm(num_samples)
+        selected_indices = all_indices[:num_select]
+        not_selected_indices = all_indices[num_select:]
+        return selected_indices, not_selected_indices
     
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
     def initial_training(self):
@@ -90,24 +102,23 @@ class main_trainer():
         if(self.args.operation_type == 'iid'): 
             command = "echo 'Loading data...'"
             subprocess.call(command, shell=True)
-            data_dic_path = '/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_androzoo_drebin'
-            self.eigenv = np.load(f'{data_dic_path}/eigvecs_d.npy') # Load eigenvectors
-            self.eigenv = torch.tensor(self.eigenv, dtype=self.dtype, device=self.device)
-            selected_indice = np.load(f'{data_dic_path}/selected_indice.npy')
-            not_selected_indice = np.load(f'{data_dic_path}/not_selected_indice.npy')
-            command = "echo 'len selected_indice: " + str(len(selected_indice)) + "'"
-            subprocess.call(command, shell=True)
-            command = "echo 'len not_selected_indice: " + str(len(not_selected_indice)) + "'"
-            subprocess.call(command, shell=True)
-             
+            # data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
+            # self.eigenv = np.load(f'{data_dic_path}/eigvecs_d.npy') # Load eigenvectors
+            # self.eigenv = torch.tensor(self.eigenv, dtype=self.dtype, device=self.device)
+            # selected_indice = np.load(f'{data_dic_path}/selected_indice.npy')
+            # not_selected_indice = np.load(f'{data_dic_path}/not_selected_indice.npy')
+            
+
+
+            directory = '/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin'
             x_train = []
             y_train = []
             y_mal_family = []
-            for file in os.listdir(data_dic_path):
+            for file in os.listdir(directory):
                 if file.endswith('.npz'):
                     command = "echo 'Loading file: " + file + "'"
                     subprocess.call(command, shell=True)
-                    x, y, y_mal = self.load_file(os.path.join(data_dic_path, file))
+                    x, y, y_mal = self.load_file(os.path.join(directory, file))
                     x_train.append(x)
                     y_train.append(y)
                     y_mal_family.append(y_mal)
@@ -116,6 +127,15 @@ class main_trainer():
 
             x_data = pd.DataFrame(x_train).astype(float)
             y_data = pd.DataFrame(y_train).astype(float)
+            command = "echo 'length of full data: " + str(len(x_data)) + "'"
+            subprocess.call(command, shell=True)
+
+            selected_indice, not_selected_indice = self.random_sampling(x_data, 0.02)
+            command = "echo 'len selected_indice: " + str(len(selected_indice)) + "'"
+            subprocess.call(command, shell=True)
+            command = "echo 'len not_selected_indice: " + str(len(not_selected_indice)) + "'"
+            subprocess.call(command, shell=True)
+
             self.budget = int(len(x_data) * self.budget_ratio)
             command = "echo 'budget: " + str(self.budget) + "'"
             subprocess.call(command, shell=True)
@@ -188,18 +208,18 @@ class main_trainer():
                 # ---------------------print end---------------------
 
                 # ---------------------print begin---------------------
-                continuous_state = uncertainty_similarity.continuous_states(self.eigenv, self.label_loader, self.unlabel_loader, self.model, self.device, self.dtype, alpha=self.alpha, sigma=self.sigma)
-                self.alpha = min(self.alpha + 0.01, self.alpha_max)
-                continuous_state = continuous_state[:, None]
-                command = "echo 'Continuous state shape: " + str(len(continuous_state)) + "'"
-                subprocess.call(command, shell=True)
+                # continuous_state = uncertainty_similarity.continuous_states(self.eigenv, self.label_loader, self.unlabel_loader, self.model, self.device, self.dtype, alpha=self.alpha, sigma=self.sigma)
+                # self.alpha = min(self.alpha + 0.01, self.alpha_max)
+                # continuous_state = continuous_state[:, None]
+                # command = "echo 'Continuous state shape: " + str(len(continuous_state)) + "'"
+                # subprocess.call(command, shell=True)
 
 
                 self.gradients = self.Model_trainer.gradient_train(training_step, self.model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size=self.batch_size, criterion=self.criterion)
                 command = "echo 'Gradients shape: " + str(len(self.gradients)) + "'"
                 subprocess.call(command, shell=True)
 
-                self.gradients = self.gradients * continuous_state
+                # self.gradients = self.gradients * continuous_state
                 # ---------------------print end---------------------
                 
                 
@@ -562,6 +582,6 @@ class main_trainer():
         print("Confusion Matrix: ", confusion_matrix_result)
         command = "echo 'Confusion Matrix: " + str(confusion_matrix_result) + "'"
         subprocess.call(command, shell=True)
-    
+
 caller = main_trainer(args=args)
 caller.main_train(200)

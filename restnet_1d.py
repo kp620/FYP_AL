@@ -63,10 +63,7 @@ def ResNet18_1D(num_classes=2):
     return ResNet1D(BasicBlock1D, [2, 2, 2, 2], num_classes=num_classes)
 
 def explain_model(class_type):
-    if class_type == "binary":
-        print("Building binary model...")
-        model = ResNet18_1D(num_classes=2)
-    elif class_type == "multi":
+    if class_type == "multi":
         print("Building multiclass model...")
         model = ResNet18_1D(num_classes=15)
     # print(model)

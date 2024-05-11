@@ -117,7 +117,7 @@ def get_orders_and_weights(
             # Collecting the selections and associated sizes (sz values) for each class.
             lambda c: facility_location_order(
                 c[1], X, y, metric, num_per_class[c[0]], weights, mode, num_n
-            ),
+            ) if num_per_class[c[0]] != 0 else(None, None),
             enumerate(classes),
         )
     )

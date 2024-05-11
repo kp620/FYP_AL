@@ -1,6 +1,9 @@
 # --------------------------------
 # Import area
-import test_Cuda, model_Trainer, approx_Optimizer, restnet_1d, facility_Update, indexed_Dataset, uncertainty_similarity
+import test_Cuda, approx_Optimizer, indexed_Dataset, uncertainty_similarity
+import restnet_1d_android as restnet_1d
+import facility_Update_Android as facility_Update
+import model_Trainer_Android as model_Trainer
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -10,15 +13,17 @@ import torch.nn.functional as F
 import subprocess
 import pandas as pd
 import argparse
+import os
+import glob
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
 # --------------------------------
 # Argument parser
 # Create the parser
 parser = argparse.ArgumentParser()
-parser.add_argument("--operation_type",  choices=['iid'], help='Specify operation type: "iid"')
-parser.add_argument("--class_type", choices=['multi'], help='Specify class type: "multi"')
-parser.add_argument("--budget", type=float, help='Specify the budget ratio')
+parser.add_argument("--operation_type",  choices=['iid', 'time-aware'], help='Specify operation type: "iid" or "time-aware"')
+parser.add_argument("--class_type", choices=['binary', 'multi'], help='Specify class type: "binary" or "multi"')
+parser.add_argument("--budget", type=float, help='Specify the budget')
 args = parser.parse_args()
 
 
@@ -34,7 +39,7 @@ class main_trainer():
         self.Model_trainer = model_Trainer # Model trainer
         self.Model = restnet_1d # Model
         self.model = self.Model.build_model(class_type=self.args.class_type) # Model used to train the data(M_0)
-        self.batch_size = 1024 # Batch size
+        self.batch_size = 128 # Batch size
         self.lr = 0.00001 # Learning rate
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=0.0001) # Optimizer
         self.criterion = nn.CrossEntropyLoss() # Loss function
@@ -57,9 +62,7 @@ class main_trainer():
         self.ggf = 0
         self.ggf_moment = 0
         self.start_loss = 0
-        # self.rs_rate = 0.001 # In IID, the rate of random sampling that is used to train the initial model
-        self.budget_ratio = self.args.budget # Budget
-        self.budget = 0
+        self.budget = self.args.budget * 6 # Budget
         self.gradients = [] # Gradients of the unlabel set
         self.pseudo_labels = [] # Pseudo labels of the unlabel set
         self.subsets = []
@@ -75,50 +78,75 @@ class main_trainer():
         self.sigma = 0.4
         self.eigenv = None
         self.optimal_step = None
-    
-    
-    # Given the initial dataset, select a subset of the dataset to train the initial model M_0
-    def initial_training(self):
-        # Load training data, acquire label and unlabel set using rs_rate / us_rate
-        if(self.args.operation_type == 'iid'): 
-            command = "echo 'Loading data...'"
-            subprocess.call(command, shell=True)
-            data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
-            self.eigenv = np.load(f'{data_dic_path}/eigvecs_d.npy') # Load eigenvectors
-            self.eigenv = torch.tensor(self.eigenv, dtype=self.dtype, device=self.device)
-            selected_indice = np.load(f'{data_dic_path}/selected_indice.npy')
-            not_selected_indice = np.load(f'{data_dic_path}/not_selected_indice.npy')
-            command = "echo 'len selected_indice: " + str(len(selected_indice)) + "'"
-            subprocess.call(command, shell=True)
-            command = "echo 'len not_selected_indice: " + str(len(not_selected_indice)) + "'"
-            subprocess.call(command, shell=True)
-            x_data = pd.read_csv(f'{data_dic_path}/x_data_iid_multiclass.csv').astype(float)
-            y_data = pd.read_csv(f'{data_dic_path}/y_data_iid_multiclass.csv').astype(float)
-            self.budget = int(len(x_data) * self.budget_ratio)
-            command = "echo 'budget: " + str(self.budget) + "'"
-            subprocess.call(command, shell=True)
-            x_data = torch.from_numpy(x_data.values)
-            y_data = torch.from_numpy(y_data.values)
-            full_dataset = TensorDataset(x_data, y_data)
-            x_data = full_dataset.tensors[0].numpy()
-            x_data = torch.from_numpy(x_data).unsqueeze(1)
-            command = "echo 'x_data shape: " + str(x_data.shape) + "'"
-            subprocess.call(command, shell=True)
-            full_dataset = TensorDataset(x_data, full_dataset.tensors[1])
 
-            not_selected_data = Subset(full_dataset, not_selected_indice)
-            selected_data = Subset(full_dataset, selected_indice)
-            self.label_loader = DataLoader(indexed_Dataset.IndexedDataset(selected_data), batch_size=self.batch_size, shuffle=True, drop_last=False)
-            self.unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(not_selected_data), batch_size=self.batch_size, shuffle=True, drop_last=False)
-            
-        # Train the initial model over the label set
-        # ---------------------print begin---------------------
+    def load_data(self,file):
+        data = np.load(file)
+        x_train = data['X_train']
+        y_train = data['y_train']
+        y_mal_family = data['y_mal_family']
+        return x_train, y_train, y_mal_family
+    
+    def load_month(self,month_file):
+        # x_train = np.load(month_file)['X_train']
+        # y_train = np.load(month_file)['y_train']
+        # y_mal_family = np.load(month_file)['y_mal_family']
+        x_train, y_train, y_mal_family = self.load_data(month_file)
+        x_data = pd.DataFrame(x_train).astype(float)
+        y_data = pd.DataFrame(y_train).astype(float)
+        x_data = torch.from_numpy(x_data.values)
+        y_data = torch.from_numpy(y_data.values)
+        dataset = TensorDataset(x_data, y_data)
+        x_data = dataset.tensors[0].numpy()
+        x_data = torch.from_numpy(x_data).unsqueeze(1)
+        dataset = TensorDataset(x_data, dataset.tensors[1])
+        return dataset
+    
+
+    def initial_training(self, month_file):
+        command = "echo 'Loading(Initial training) month file: " + str(month_file) + "'"
+        subprocess.call(command, shell=True)
+        train_dataset = self.load_month(month_file)
+        self.label_loader = DataLoader(indexed_Dataset.IndexedDataset(train_dataset), batch_size=self.batch_size, shuffle=True, drop_last=False)
+    
+        x_unlabel = []
+        y_unlabel = []
+        y_mal_family_unlabel = []
+        directory = '/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin'
+        validation_files = [
+            f'{directory}/2013-01_selected.npz',
+            f'{directory}/2013-02_selected.npz',
+            f'{directory}/2013-03_selected.npz',
+            f'{directory}/2013-04_selected.npz',
+            f'{directory}/2013-05_selected.npz',
+            f'{directory}/2013-06_selected.npz',
+        ]
+        for files in validation_files:
+            command = "echo 'Loading unlabel file: " + str(files) + "'"
+            subprocess.call(command, shell=True)
+            x, y, y_mal = self.load_data(files)
+            x_unlabel.append(x)
+            y_unlabel.append(y)
+            y_mal_family_unlabel.append(y_mal)
+        x_unlabel = np.concatenate(x_unlabel)
+        y_unlabel = np.concatenate(y_unlabel)
+
+        x_unlabel = pd.DataFrame(x_unlabel).astype(float)
+        y_unlabel = pd.DataFrame(y_unlabel).astype(float)
+        x_unlabel = torch.from_numpy(x_unlabel.values)
+        y_unlabel = torch.from_numpy(y_unlabel.values)
+        unlabel_dataset = TensorDataset(x_unlabel, y_unlabel)
+        x_unlabel = unlabel_dataset.tensors[0].numpy()
+        x_unlabel = torch.from_numpy(x_unlabel).unsqueeze(1)
+        unlabel_dataset = TensorDataset(x_unlabel, unlabel_dataset.tensors[1])
+        self.unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(unlabel_dataset), batch_size=self.batch_size, shuffle=True, drop_last=False)
+
+
         command = "echo 'Initial training...'"
         subprocess.call(command, shell=True)
         self.Model_trainer.initial_train(self.label_loader, self.model, self.device, self.dtype, criterion=self.criterion, learning_rate=self.lr)
         command = "echo 'Initial training complete!'"
         subprocess.call(command, shell=True)
-        # ---------------------print end---------------------
+        self.label_loader = None
 
         # Acquire pseudo labels of the unlabel set
         # ---------------------print begin---------------------
@@ -129,7 +157,7 @@ class main_trainer():
         subprocess.call(command, shell=True)
         # ---------------------print end---------------------
 
-        self.steps_per_epoch = np.ceil(int(len(self.unlabel_loader.dataset) * self.budget_ratio) / self.batch_size).astype(int)
+        self.steps_per_epoch = np.ceil(int(len(self.unlabel_loader.dataset) * 0.1) / self.batch_size).astype(int)
         # ---------------------print begin---------------------
         command = "echo 'Steps per epoch: " + str(self.steps_per_epoch) + "'" 
         subprocess.call(command, shell=True)
@@ -166,18 +194,18 @@ class main_trainer():
                 # ---------------------print end---------------------
 
                 # ---------------------print begin---------------------
-                continuous_state = uncertainty_similarity.continuous_states(self.eigenv, self.label_loader, self.unlabel_loader, self.model, self.device, self.dtype, alpha=self.alpha, sigma=self.sigma)
-                self.alpha = min(self.alpha + 0.01, self.alpha_max)
-                continuous_state = continuous_state[:, None]
-                command = "echo 'Continuous state shape: " + str(len(continuous_state)) + "'"
-                subprocess.call(command, shell=True)
+                # continuous_state = uncertainty_similarity.continuous_states(self.eigenv, self.label_loader, self.unlabel_loader, self.model, self.device, self.dtype, alpha=self.alpha, sigma=self.sigma)
+                # self.alpha = min(self.alpha + 0.01, self.alpha_max)
+                # continuous_state = continuous_state[:, None]
+                # command = "echo 'Continuous state shape: " + str(len(continuous_state)) + "'"
+                # subprocess.call(command, shell=True)
 
 
                 self.gradients = self.Model_trainer.gradient_train(training_step, self.model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size=self.batch_size, criterion=self.criterion)
                 command = "echo 'Gradients shape: " + str(len(self.gradients)) + "'"
                 subprocess.call(command, shell=True)
 
-                self.gradients = self.gradients * continuous_state
+                # self.gradients = self.gradients * continuous_state
                 # ---------------------print end---------------------
                 
                 
@@ -209,7 +237,10 @@ class main_trainer():
                 # ---------------------print end---------------------
                 
 
-                self.label_loader = ConcatDataset([self.label_loader.dataset.dataset, Subset(self.unlabel_loader.dataset.dataset, self.coreset_index)])
+                if self.label_loader is None:
+                    self.label_loader = Subset(self.unlabel_loader.dataset.dataset, self.coreset_index)
+                else:
+                    self.label_loader = ConcatDataset([self.label_loader.dataset.dataset, Subset(self.unlabel_loader.dataset.dataset, self.coreset_index)])
                 self.label_loader = DataLoader(indexed_Dataset.IndexedDataset(self.label_loader), batch_size=self.batch_size, shuffle=True, drop_last=False)
                 self.train_loader = self.coreset_loader
                 self.train_iter = iter(self.train_loader)
@@ -237,23 +268,21 @@ class main_trainer():
             # ---------------------print end---------------------
     
     def main_train(self, epoch):
-        self.initial_training() # 在initial training就update delta?
-        command = "echo 'Main training start!'"
-        subprocess.call(command, shell=True)
+        directory = '/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin'
+        train_directory = f'{directory}/2012-01to2012-12_selected.npz'
+        self.initial_training(train_directory)
+
+        self.random_test()
+        return
 
         for e in range(epoch):
             command = "echo 'Epoch: " + str(e) + "'"
             subprocess.call(command, shell=True)
             self.train_epoch(e)
-
             if self.stop == 1:
                 break
-
-        print("Main training complete!")
         self.test_accuracy_without_weight()
         self.test_accuracy_with_weight()
-
-
 
 # --------------------------------
 # Auxiliary functions     
@@ -379,7 +408,7 @@ class main_trainer():
         self.coreset_index = []
         self.subsets = []
         self.weights = []
-        for iteration in range(5):
+        for iteration in range(2):
             random_subset = self.select_random_set()
             subsets.append(random_subset)
         # Greedy Facility Location
@@ -395,7 +424,7 @@ class main_trainer():
             if gradient_data.size <= 0:
                 continue
             fl_labels = self.pseudo_labels[subset] - torch.min(self.pseudo_labels[subset]) # Ensure the labels start from 0
-            sub_coreset_index, sub_weights= facility_Update.get_orders_and_weights(128, gradient_data, "euclidean", y=fl_labels.cpu().numpy(), equal_num=False, mode="sparse", num_n=128)
+            sub_coreset_index, sub_weights= facility_Update.get_orders_and_weights(25, gradient_data, "euclidean", y=fl_labels.cpu().numpy(), equal_num=False, mode="sparse", num_n=128)
             sub_coreset_index = subset[sub_coreset_index] # Get the indices of the coreset
             self.coreset_index.extend(sub_coreset_index.tolist()) # Add the coreset to the coreset list
             self.weights.extend(sub_weights.tolist()) # Add the weights to the weights list
@@ -403,13 +432,35 @@ class main_trainer():
             subset_count += 1
         print("Greedy FL Complete at step: ", training_step)
 
+    def load_test_data(self, test_files):
+        command = "echo 'Loading unlabel file: " + str(test_files) + "'"
+        subprocess.call(command, shell=True)
+        x_unlabel = []
+        y_unlabel = []
+        x, y, y_mal = self.load_data(test_files)
+        x_unlabel.append(x)
+        y_unlabel.append(y)
+        x_unlabel = np.concatenate(x_unlabel)
+        y_unlabel = np.concatenate(y_unlabel)
+
+        x_unlabel = pd.DataFrame(x_unlabel).astype(float)
+        y_unlabel = pd.DataFrame(y_unlabel).astype(float)
+        x_unlabel = torch.from_numpy(x_unlabel.values)
+        y_unlabel = torch.from_numpy(y_unlabel.values)
+        unlabel_dataset = TensorDataset(x_unlabel, y_unlabel)
+        x_unlabel = unlabel_dataset.tensors[0].numpy()
+        x_unlabel = torch.from_numpy(x_unlabel).unsqueeze(1)
+        unlabel_dataset = TensorDataset(x_unlabel, unlabel_dataset.tensors[1])
+        unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(unlabel_dataset), batch_size=self.batch_size, shuffle=True, drop_last=False)
+        return unlabel_loader
+
+
     def test_accuracy_without_weight(self):
         command = "echo 'Testing accuracy without weight!'"
         subprocess.call(command, shell=True)
         test_model = self.Model.build_model(class_type=self.args.class_type)
         optimizer = optim.Adam(test_model.parameters(), lr=self.lr, weight_decay=0.0001)
         print("Testing accuracy without weight!")
-        unlabel_loader = self.unlabel_loader
         coreset = self.final_coreset
         print("len coreset: ", len(coreset))
         coreset_loader = DataLoader(coreset, batch_size=self.batch_size, shuffle=False, drop_last=False)
@@ -430,44 +481,74 @@ class main_trainer():
             if epoch % 10 == 0:
                 print(f'Epoch {epoch+1}, Loss: {loss.item()}')
         
-        test_model.eval()
-        predictions = []
-        targets = []
-        # Disable gradient calculations
-        with torch.no_grad():
-            for batch, (input, target, idx) in enumerate(unlabel_loader):
-                input = input.to(self.device, dtype=self.dtype)
-                target = target.to(self.device, dtype=self.dtype).squeeze().long()
-                output, _ = test_model(input)
-                probabilities = F.softmax(output, dim=1)
-                _, pseudo_label = torch.max(probabilities, dim=1)
-                predictions.extend(pseudo_label.cpu().numpy())
-                targets.extend(target.cpu().numpy())
-        predictions = np.array(predictions)
-        targets = np.array(targets)
-        accuracy = accuracy_score(targets, predictions)
-        if(self.args.class_type == 'binary'):
-            average = "binary"
-        elif(self.args.class_type == 'multi'):
-            average = "macro"
-        precision = precision_score(targets, predictions, average=average) 
-        recall = recall_score(targets, predictions, average=average)
-        f1 = f1_score(targets, predictions, average=average)
-        print(f"Accuracy: {accuracy:.2f}")
-        print(f"Precision: {precision:.2f}")
-        print(f"Recall: {recall:.2f}")
-        print(f"F1 Score: {f1:.2f}")
-        command = "echo 'MACRO RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'"
-        subprocess.call(command, shell=True)
-        precision = precision_score(targets, predictions, average="weighted") 
-        recall = recall_score(targets, predictions, average="weighted")
-        f1 = f1_score(targets, predictions, average="weighted")
-        command = "echo 'WEIGHTED RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'\n"
-        subprocess.call(command, shell=True)
-        confusion_matrix_result = confusion_matrix(targets, predictions)
-        print("Confusion Matrix: ", confusion_matrix_result)
-        command = "echo 'Confusion Matrix: " + str(confusion_matrix_result) + "'"
-        subprocess.call(command, shell=True)
+        directory = '/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin'
+        test_files = [
+            f'{directory}/2013-07_selected.npz',
+            f'{directory}/2013-08_selected.npz',
+            f'{directory}/2013-09_selected.npz',
+            f'{directory}/2013-10_selected.npz',
+            f'{directory}/2013-11_selected.npz',
+            f'{directory}/2013-12_selected.npz'
+        ]
+        test_files.extend(glob.glob(f'{directory}/2014*.npz'))
+        test_files.extend(glob.glob(f'{directory}/2015*.npz'))
+        test_files.extend(glob.glob(f'{directory}/2016*.npz'))
+        test_files.extend(glob.glob(f'{directory}/2017*.npz'))
+        test_files.extend(glob.glob(f'{directory}/2018*.npz'))
+
+        avg_precision = 0
+        avg_recall = 0
+        avg_f1 = 0
+        count = 0
+
+        for files in test_files:
+            unlabel_loader = self.load_test_data(files)
+            test_model.eval()
+            predictions = []
+            targets = []
+            # Disable gradient calculations
+            with torch.no_grad():
+                for batch, (input, target, idx) in enumerate(unlabel_loader):
+                    input = input.to(self.device, dtype=self.dtype)
+                    target = target.to(self.device, dtype=self.dtype).squeeze().long()
+                    output, _ = test_model(input)
+                    probabilities = F.softmax(output, dim=1)
+                    _, pseudo_label = torch.max(probabilities, dim=1)
+                    predictions.extend(pseudo_label.cpu().numpy())
+                    targets.extend(target.cpu().numpy())
+            predictions = np.array(predictions)
+            targets = np.array(targets)
+            accuracy = accuracy_score(targets, predictions)
+            if(self.args.class_type == 'binary'):
+                average = "binary"
+            elif(self.args.class_type == 'multi'):
+                average = "macro"
+            precision = precision_score(targets, predictions, average=average) 
+            recall = recall_score(targets, predictions, average=average)
+            f1 = f1_score(targets, predictions, average=average)
+            print(f"Accuracy: {accuracy:.2f}")
+            print(f"Precision: {precision:.2f}")
+            print(f"Recall: {recall:.2f}")
+            print(f"F1 Score: {f1:.2f}")
+            command = "echo 'MACRO RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'"
+            subprocess.call(command, shell=True)
+            precision = precision_score(targets, predictions, average="weighted") 
+            recall = recall_score(targets, predictions, average="weighted")
+            f1 = f1_score(targets, predictions, average="weighted")
+            avg_precision += precision
+            avg_recall += recall 
+            avg_f1 += f1
+            count += 1
+            command = "echo 'WEIGHTED RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'\n"
+            subprocess.call(command, shell=True)
+            confusion_matrix_result = confusion_matrix(targets, predictions)
+            print("Confusion Matrix: ", confusion_matrix_result)
+            command = "echo 'Confusion Matrix: " + str(confusion_matrix_result) + "'"
+            subprocess.call(command, shell=True)
+        print("avg precision: ", avg_precision / count)
+        print("avg recall: ", avg_recall / count)
+        print("avg f1: ", avg_f1 / count)
+
     
     def test_accuracy_with_weight(self):
         command = "echo 'Testing accuracy with weight!'"
@@ -475,7 +556,6 @@ class main_trainer():
         test_model = self.Model.build_model(class_type=self.args.class_type)
         optimizer = optim.Adam(test_model.parameters(), lr=self.lr, weight_decay=0.0001)
         print("Testing accuracy with weight!")
-        unlabel_loader = self.unlabel_loader
         coreset = self.final_coreset
         print("len coreset: ", len(coreset))
         coreset_loader = DataLoader(coreset, batch_size=128, shuffle=False, drop_last=True)
@@ -502,44 +582,147 @@ class main_trainer():
                 loss.backward()
                 optimizer.step()  
         
-        test_model.eval()
-        predictions = []
-        targets = []
-        # Disable gradient calculations
-        with torch.no_grad():
-            for batch, (input, target, idx) in enumerate(unlabel_loader):
-                input = input.to(self.device, dtype=self.dtype)
-                target = target.to(self.device, dtype=self.dtype).squeeze().long()
-                output, _ = test_model(input)
-                probabilities = F.softmax(output, dim=1)
-                _, pseudo_label = torch.max(probabilities, dim=1)
-                predictions.extend(pseudo_label.cpu().numpy())
-                targets.extend(target.cpu().numpy())
-        predictions = np.array(predictions)
-        targets = np.array(targets)
-        accuracy = accuracy_score(targets, predictions)
-        if(self.args.class_type == 'binary'):
-            average = "binary"
-        elif(self.args.class_type == 'multi'):
-            average = "macro"
-        precision = precision_score(targets, predictions, average=average) 
-        recall = recall_score(targets, predictions, average=average)
-        f1 = f1_score(targets, predictions, average=average)
-        print(f"Accuracy: {accuracy:.2f}")
-        print(f"Precision: {precision:.2f}")
-        print(f"Recall: {recall:.2f}")
-        print(f"F1 Score: {f1:.2f}")
-        command = "echo 'MACRO RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'"
-        subprocess.call(command, shell=True)
-        precision = precision_score(targets, predictions, average="weighted") 
-        recall = recall_score(targets, predictions, average="weighted")
-        f1 = f1_score(targets, predictions, average="weighted")
-        command = "echo 'WEIGHTED RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'\n"
-        subprocess.call(command, shell=True)
-        confusion_matrix_result = confusion_matrix(targets, predictions)
-        print("Confusion Matrix: ", confusion_matrix_result)
-        command = "echo 'Confusion Matrix: " + str(confusion_matrix_result) + "'"
-        subprocess.call(command, shell=True)
 
+        directory = '/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin'
+        test_files = [
+            f'{directory}/2013-07_selected.npz',
+            f'{directory}/2013-08_selected.npz',
+            f'{directory}/2013-09_selected.npz',
+            f'{directory}/2013-10_selected.npz',
+            f'{directory}/2013-11_selected.npz',
+            f'{directory}/2013-12_selected.npz'
+        ]
+        test_files.extend(glob.glob(f'{directory}/2014*.npz'))
+        test_files.extend(glob.glob(f'{directory}/2015*.npz'))
+        test_files.extend(glob.glob(f'{directory}/2016*.npz'))
+        test_files.extend(glob.glob(f'{directory}/2017*.npz'))
+        test_files.extend(glob.glob(f'{directory}/2018*.npz'))
+
+        avg_precision = 0
+        avg_recall = 0
+        avg_f1 = 0
+        count = 0
+
+        for files in test_files:
+            unlabel_loader = self.load_test_data(files)
+            test_model.eval()
+            predictions = []
+            targets = []
+            # Disable gradient calculations
+            with torch.no_grad():
+                for batch, (input, target, idx) in enumerate(unlabel_loader):
+                    input = input.to(self.device, dtype=self.dtype)
+                    target = target.to(self.device, dtype=self.dtype).squeeze().long()
+                    output, _ = test_model(input)
+                    probabilities = F.softmax(output, dim=1)
+                    _, pseudo_label = torch.max(probabilities, dim=1)
+                    predictions.extend(pseudo_label.cpu().numpy())
+                    targets.extend(target.cpu().numpy())
+            predictions = np.array(predictions)
+            targets = np.array(targets)
+            accuracy = accuracy_score(targets, predictions)
+            if(self.args.class_type == 'binary'):
+                average = "binary"
+            elif(self.args.class_type == 'multi'):
+                average = "macro"
+            precision = precision_score(targets, predictions, average=average) 
+            recall = recall_score(targets, predictions, average=average)
+            f1 = f1_score(targets, predictions, average=average)
+            print(f"Accuracy: {accuracy:.2f}")
+            print(f"Precision: {precision:.2f}")
+            print(f"Recall: {recall:.2f}")
+            print(f"F1 Score: {f1:.2f}")
+            command = "echo 'MACRO RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'"
+            subprocess.call(command, shell=True)
+            precision = precision_score(targets, predictions, average="weighted") 
+            recall = recall_score(targets, predictions, average="weighted")
+            f1 = f1_score(targets, predictions, average="weighted")
+            avg_precision += precision
+            avg_recall += recall 
+            avg_f1 += f1
+            count += 1
+            command = "echo 'WEIGHTED RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'\n"
+            subprocess.call(command, shell=True)
+            confusion_matrix_result = confusion_matrix(targets, predictions)
+            print("Confusion Matrix: ", confusion_matrix_result)
+            command = "echo 'Confusion Matrix: " + str(confusion_matrix_result) + "'"
+            subprocess.call(command, shell=True)
+        print("avg precision: ", avg_precision / count)
+        print("avg recall: ", avg_recall / count)
+        print("avg f1: ", avg_f1 / count)
+
+
+
+
+    def random_test(self):     
+        directory = '/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin'
+        test_files = [
+            f'{directory}/2013-07_selected.npz',
+            f'{directory}/2013-08_selected.npz',
+            f'{directory}/2013-09_selected.npz',
+            f'{directory}/2013-10_selected.npz',
+            f'{directory}/2013-11_selected.npz',
+            f'{directory}/2013-12_selected.npz'
+        ]
+        test_files.extend(glob.glob(f'{directory}/2014*.npz'))
+        test_files.extend(glob.glob(f'{directory}/2015*.npz'))
+        test_files.extend(glob.glob(f'{directory}/2016*.npz'))
+        test_files.extend(glob.glob(f'{directory}/2017*.npz'))
+        test_files.extend(glob.glob(f'{directory}/2018*.npz'))
+
+        avg_precision = 0
+        avg_recall = 0
+        avg_f1 = 0
+        count = 0
+
+        for files in test_files:
+            unlabel_loader = self.load_test_data(files)
+            self.model.eval()
+            predictions = []
+            targets = []
+            # Disable gradient calculations
+            with torch.no_grad():
+                for batch, (input, target, idx) in enumerate(unlabel_loader):
+                    input = input.to(self.device, dtype=self.dtype)
+                    target = target.to(self.device, dtype=self.dtype).squeeze().long()
+                    output, _ = self.model(input)
+                    probabilities = F.softmax(output, dim=1)
+                    _, pseudo_label = torch.max(probabilities, dim=1)
+                    predictions.extend(pseudo_label.cpu().numpy())
+                    targets.extend(target.cpu().numpy())
+            predictions = np.array(predictions)
+            targets = np.array(targets)
+            accuracy = accuracy_score(targets, predictions)
+            if(self.args.class_type == 'binary'):
+                average = "binary"
+            elif(self.args.class_type == 'multi'):
+                average = "macro"
+            precision = precision_score(targets, predictions, average=average) 
+            recall = recall_score(targets, predictions, average=average)
+            f1 = f1_score(targets, predictions, average=average)
+            print(f"Accuracy: {accuracy:.2f}")
+            print(f"Precision: {precision:.2f}")
+            print(f"Recall: {recall:.2f}")
+            print(f"F1 Score: {f1:.2f}")
+            command = "echo 'MACRO RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'"
+            subprocess.call(command, shell=True)
+            precision = precision_score(targets, predictions, average="weighted") 
+            recall = recall_score(targets, predictions, average="weighted")
+            f1 = f1_score(targets, predictions, average="weighted")
+            avg_precision += precision
+            avg_recall += recall 
+            avg_f1 += f1
+            count += 1
+            command = "echo 'WEIGHTED RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'\n"
+            subprocess.call(command, shell=True)
+            confusion_matrix_result = confusion_matrix(targets, predictions)
+            print("Confusion Matrix: ", confusion_matrix_result)
+            command = "echo 'Confusion Matrix: " + str(confusion_matrix_result) + "'"
+            subprocess.call(command, shell=True)
+        print("avg precision: ", avg_precision / count)
+        print("avg recall: ", avg_recall / count)
+        print("avg f1: ", avg_f1 / count)
+    
+    
 caller = main_trainer(args=args)
-caller.main_train(200)
+caller.main_train(100)
