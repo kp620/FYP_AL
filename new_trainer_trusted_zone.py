@@ -50,8 +50,6 @@ class main_trainer():
         self.train_loader = DataLoader # Training dataset
         self.approx_loader = DataLoader # Approximation dataset
         self.coreset_loader = DataLoader # Coreset dataset
-        self.budget = 0 # Budget
-        self.check_thresh_factor = 0.1
         self.delta = 1.0 
         self.gf = 0 
         self.ggf = 0

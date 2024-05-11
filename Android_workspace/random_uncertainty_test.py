@@ -148,7 +148,7 @@ def eval_model(model, test_loader, device, dtype):
 # ----------------- Main -----------------
 x_data, y_data = load_data()
 
-AL_iter = 1
+AL_iter = 10
 selection_budget = args.budget
 num_epochs = 50
 
@@ -181,6 +181,8 @@ def US_Model(us_model, x_data, y_data, x_train, y_train):
         y_train = torch.cat((y_train, y_selected.to('cpu')), dim=0)  
         train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=1024, shuffle=True)
         us_model = train_model(us_model, train_loader, device, dtype, criterion, optimizer, num_epochs)
+        command = 'echo "length of x_train: "' + str(len(x_train))
+        subprocess.call(command, shell=True)
     print("length of x_train: ", len(x_train))
     test_loader = DataLoader(TensorDataset(x_data, y_data), batch_size=1024, shuffle=True)
     command = 'echo "Evaluation"'
@@ -197,7 +199,9 @@ def RS_Model(rs_model, x_data, y_data, x_train, y_train):
         x_train = torch.cat((x_train, x_selected.to('cpu')), dim=0)
         y_train = torch.cat((y_train, y_selected.to('cpu')), dim=0)      
         train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=1024, shuffle=True)     
-        rs_model = train_model(rs_model, train_loader, device, dtype, criterion, optimizer, num_epochs)          
+        rs_model = train_model(rs_model, train_loader, device, dtype, criterion, optimizer, num_epochs)
+        command = 'echo "length of x_train: "' + str(len(x_train))
+        subprocess.call(command, shell=True)          
     print("length of x_train: ", len(x_train))
     test_loader = DataLoader(TensorDataset(x_data, y_data), batch_size=1024, shuffle=True)
     command = 'echo "Evaluation"'

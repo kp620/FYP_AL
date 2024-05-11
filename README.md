@@ -32,6 +32,19 @@ e.g. 'python data_Preprocess.py --rs_rate=0.001 --d=10 --K=15'
 3. Run the trainer
 e.g. 'python new_trainer_trusted_zone.py --operation_type='iid' --class_type='multi' --budget=0.009'
 
+The initial training set is 0.1%. So **budget = real_budget - 0.001**
+
+e.g. if want to select 1% data, then budget = 0.01 - 0.001 = 0.009
+
 
 ## Hyperparameters
-- 
+- 'batch_size': batch size
+- 'lr': learning rate
+- 'budget': the maximum number of samples to be selected, determined by 'budget_ratio'
+- 'budget_ratio': the maximum rate of selection. 
+- 'gf, ggf, ggf_moment': hessian related parameters
+- 'delta': trusted zone
+- 'stop': signs of reaching budget
+- 'alpha, alpha_max': quantify the weights between similarity and uncertainty
+- 'sigma': scaling factors in Guassian, determines how the distance between two points is translated into a similarity measure.
+- 'eigenv': stores the eigenvectors calculated from PCA

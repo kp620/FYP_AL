@@ -121,7 +121,7 @@ def eval_model(model, test_loader, device, dtype):
 # ----------------- Main -----------------
 x_data, y_data = load_data()
 
-AL_iter = 1
+AL_iter = 10
 selection_budget = args.budget
 num_epochs = 50
 
