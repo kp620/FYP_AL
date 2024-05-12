@@ -163,11 +163,11 @@ def main(rs_rate):
     command = "echo 'PCA finished'"
     subprocess.call(command, shell=True)
 
-    centroids = Kmeansplusplus(full_dataset_pca, K=485)
+    centroids = Kmeansplusplus(full_dataset_pca, K=2)
     command = "echo 'Kmeans++ finished'"
     subprocess.call(command, shell=True)
 
-    C = mini_K(centroids, full_dataset_pca, max_iters= 10, rs_rate=rs_rate, K=485)
+    C = mini_K(centroids, full_dataset_pca, max_iters= 10, rs_rate=rs_rate, K=2)
     command = "echo 'mini_K finished'"
     subprocess.call(command, shell=True)
 

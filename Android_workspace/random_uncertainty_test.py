@@ -27,8 +27,11 @@ def load_file(file):
         data = np.load(file)
         x_train = data['X_train']
         y_train = data['y_train']
+
+        y_train_binary = np.where(y_train == 0, 0, 1) # Convert to binary
+
         y_mal_family = data['y_mal_family']
-        return x_train, y_train, y_mal_family
+        return x_train, y_train_binary, y_mal_family
     
 
 def load_data():

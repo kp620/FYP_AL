@@ -85,8 +85,11 @@ class main_trainer():
         data = np.load(file)
         x_train = data['X_train']
         y_train = data['y_train']
+
+        y_train_binary = np.where(y_train == 0, 0, 1) # Convert to binary
+
         y_mal_family = data['y_mal_family']
-        return x_train, y_train, y_mal_family
+        return x_train, y_train_binary, y_mal_family
     
     def random_sampling(self, x_data, selection_rate):
         num_samples = x_data.shape[0]
@@ -101,16 +104,16 @@ class main_trainer():
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
         if(self.args.operation_type == 'iid'): 
             command = "echo 'Loading data...'"
-            subprocess.call(command, shell=True)
-            # data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
-            # self.eigenv = np.load(f'{data_dic_path}/eigvecs_d.npy') # Load eigenvectors
-            # self.eigenv = torch.tensor(self.eigenv, dtype=self.dtype, device=self.device)
-            # selected_indice = np.load(f'{data_dic_path}/selected_indice.npy')
-            # not_selected_indice = np.load(f'{data_dic_path}/not_selected_indice.npy')
-            
+            subprocess.call(command, shell=True)   
 
 
             directory = '/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin'
+
+            self.eigenv = np.load(f'{directory}/eigvecs_d.npy') # Load eigenvectors
+            self.eigenv = torch.tensor(self.eigenv, dtype=self.dtype, device=self.device)
+            selected_indice = np.load(f'{directory}/selected_indice.npy')
+            not_selected_indice = np.load(f'{directory}/not_selected_indice.npy')
+
             x_train = []
             y_train = []
             y_mal_family = []
@@ -125,12 +128,16 @@ class main_trainer():
             x_train = np.concatenate(x_train)
             y_train = np.concatenate(y_train)
 
+            unique_labels = np.unique(y_train).tolist()
+            command = "echo 'Unique labels: " + str(len(unique_labels)) + "'"
+            subprocess.call(command, shell=True)
+
             x_data = pd.DataFrame(x_train).astype(float)
             y_data = pd.DataFrame(y_train).astype(float)
             command = "echo 'length of full data: " + str(len(x_data)) + "'"
             subprocess.call(command, shell=True)
 
-            selected_indice, not_selected_indice = self.random_sampling(x_data, 0.02)
+            # selected_indice, not_selected_indice = self.random_sampling(x_data, 0.02)
             command = "echo 'len selected_indice: " + str(len(selected_indice)) + "'"
             subprocess.call(command, shell=True)
             command = "echo 'len not_selected_indice: " + str(len(not_selected_indice)) + "'"
@@ -208,18 +215,18 @@ class main_trainer():
                 # ---------------------print end---------------------
 
                 # ---------------------print begin---------------------
-                # continuous_state = uncertainty_similarity.continuous_states(self.eigenv, self.label_loader, self.unlabel_loader, self.model, self.device, self.dtype, alpha=self.alpha, sigma=self.sigma)
-                # self.alpha = min(self.alpha + 0.01, self.alpha_max)
-                # continuous_state = continuous_state[:, None]
-                # command = "echo 'Continuous state shape: " + str(len(continuous_state)) + "'"
-                # subprocess.call(command, shell=True)
+                continuous_state = uncertainty_similarity.continuous_states(self.eigenv, self.label_loader, self.unlabel_loader, self.model, self.device, self.dtype, alpha=self.alpha, sigma=self.sigma)
+                self.alpha = min(self.alpha + 0.01, self.alpha_max)
+                continuous_state = continuous_state[:, None]
+                command = "echo 'Continuous state shape: " + str(len(continuous_state)) + "'"
+                subprocess.call(command, shell=True)
 
 
                 self.gradients = self.Model_trainer.gradient_train(training_step, self.model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size=self.batch_size, criterion=self.criterion)
                 command = "echo 'Gradients shape: " + str(len(self.gradients)) + "'"
                 subprocess.call(command, shell=True)
 
-                # self.gradients = self.gradients * continuous_state
+                self.gradients = self.gradients * continuous_state
                 # ---------------------print end---------------------
                 
                 
@@ -506,6 +513,11 @@ class main_trainer():
         f1 = f1_score(targets, predictions, average="weighted")
         command = "echo 'WEIGHTED RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'\n"
         subprocess.call(command, shell=True)
+        precision = precision_score(targets, predictions, average="micro")
+        recall = recall_score(targets, predictions, average="micro")
+        f1 = f1_score(targets, predictions, average="micro")
+        command = "echo 'MICRO RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'\n"
+        subprocess.call(command, shell=True)
         confusion_matrix_result = confusion_matrix(targets, predictions)
         print("Confusion Matrix: ", confusion_matrix_result)
         command = "echo 'Confusion Matrix: " + str(confusion_matrix_result) + "'"
@@ -577,6 +589,11 @@ class main_trainer():
         recall = recall_score(targets, predictions, average="weighted")
         f1 = f1_score(targets, predictions, average="weighted")
         command = "echo 'WEIGHTED RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'\n"
+        subprocess.call(command, shell=True)
+        precision = precision_score(targets, predictions, average="micro")
+        recall = recall_score(targets, predictions, average="micro")
+        f1 = f1_score(targets, predictions, average="micro")
+        command = "echo 'MICRO RESULT: Accuracy: " + str(accuracy) + "' + 'Precision: " + str(precision) + "' + 'Recall: " + str(recall) + "' + 'F1 Score: " + str(f1) + "'\n"
         subprocess.call(command, shell=True)
         confusion_matrix_result = confusion_matrix(targets, predictions)
         print("Confusion Matrix: ", confusion_matrix_result)

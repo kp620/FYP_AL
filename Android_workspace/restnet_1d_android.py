@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 import torch.utils.checkpoint as checkpoint
+import subprocess
 
 class BasicBlock1D(nn.Module):
     expansion = 1
@@ -62,8 +63,9 @@ class ResNet1D(nn.Module):
         x = self.linear(pre_linear)
         return x, pre_linear
 
-def ResNet18_1D(num_classes=485):
+def ResNet18_1D(num_classes=2):
     return ResNet1D(BasicBlock1D, [2, 2, 2, 2], num_classes=num_classes)
+
 
 def explain_model(class_type):
     if class_type == "binary":
@@ -71,7 +73,7 @@ def explain_model(class_type):
         model = ResNet18_1D(num_classes=2)
     elif class_type == "multi":
         print("Building multiclass model...")
-        model = ResNet18_1D(num_classes=485)
+        model = ResNet18_1D(num_classes=2)
     # print(model)
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Total number of parameters is: ", params)
