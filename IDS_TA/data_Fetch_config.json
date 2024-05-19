@@ -1,0 +1,10 @@
+
+{
+    "ids17_url": "https://intrusion-detection.distrinet-research.be/WTMC2021/Dataset/dataset.zip",
+    "download_path": "dataset.zip",
+    "extract_to_directory": "dataset",
+    "labeling_mode": "multiclass",
+    "split_type": "iid",
+    "time-aware": 693702,
+    "iid_split": [0.20, 0.50]
+}

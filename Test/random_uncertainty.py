@@ -1,7 +1,7 @@
 import torch
 import sys 
 sys.path.append('../')
-import test_Cuda, restnet_1d_test, restnet_1d_multi
+import test_Cuda, restnet_1d_multi
 import pandas as pd
 from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader

@@ -1,9 +1,13 @@
 import numpy as np
 
-data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
-selected_indice = np.load(f'{data_dic_path}/selected_indice.npy')
-not_selected_indice = np.load(f'{data_dic_path}/not_selected_indice.npy')
+file = '/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin/2013-01_selected.npz'
 
-print(len(selected_indice))
 
-print(len(not_selected_indice))
+data = np.load(file)
+x_train = data['X_train']
+y_train = data['y_train']
+y_train = np.where(y_train == 0, 0, 1) # Convert to binary
+
+#count 1 and 0
+print('Number of benign apps:', np.sum(y_train == 0))
+print('Number of malicious apps:', np.sum(y_train == 1))

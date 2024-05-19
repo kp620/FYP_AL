@@ -7,6 +7,7 @@ from scipy.spatial.distance import cdist
 import subprocess
 from sklearn.decomposition import PCA
 import os
+import glob
 
 def load_file(file):
     data = np.load(file)
@@ -20,10 +21,20 @@ def load_data():
     print("Loading data...")
     directory = '/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin'
 
+    training_file = [
+            f'{directory}/2013-01_selected.npz',
+            f'{directory}/2013-02_selected.npz',
+            f'{directory}/2013-03_selected.npz',
+            f'{directory}/2013-04_selected.npz',
+            f'{directory}/2013-05_selected.npz',
+            f'{directory}/2013-06_selected.npz',
+        ]
+    training_file.extend(glob.glob(f'{directory}/2012*.npz'))
+
     x_train = []
     y_train = []
     y_mal_family = []
-    for file in os.listdir(directory):
+    for file in training_file:
         if file.endswith('.npz'):
             command = "echo 'Loading file: " + file + "'"
             subprocess.call(command, shell=True)
@@ -148,8 +159,8 @@ def cluster_sample(full_dataset, full_dataset_pca, C, rs_rate = 0.05):
     print('Selected indices: ', len(selected_indices))
     print('Not selected indices: ', len(not_selected_indice))
 
-    np.save('/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin/not_selected_indice.npy', not_selected_indice)
-    np.save('/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin/selected_indice.npy', selected_indices)
+    np.save('/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin/not_selected_indice_2.npy', not_selected_indice)
+    np.save('/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin/selected_indice_2.npy', selected_indices)
     
 
 
@@ -159,7 +170,7 @@ def main(rs_rate):
     subprocess.call(command, shell=True)
 
     full_dataset_pca, eigenv_d = self_PCA(full_dataset, d = 1000)
-    np.save('/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin/eigvecs_d.npy', eigenv_d)
+    np.save('/vol/bitbucket/kp620/FYP/Android_workspace/data/gen_apigraph_drebin/eigvecs_d_2.npy', eigenv_d)
     command = "echo 'PCA finished'"
     subprocess.call(command, shell=True)
 
@@ -174,4 +185,4 @@ def main(rs_rate):
     cluster_sample(full_dataset, full_dataset_pca, C, rs_rate = rs_rate)
 
 
-main(0.03)
+main(0.1)
