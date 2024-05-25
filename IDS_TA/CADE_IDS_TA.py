@@ -18,6 +18,7 @@ from scipy.spatial import distance
 from scipy.stats import median_abs_deviation
 import subprocess
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
 
 seed = 0
 torch.manual_seed(seed)
@@ -27,6 +28,8 @@ np.random.seed(seed)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 device
+
+selection_rate = 0.03
 
 
 
@@ -245,6 +248,9 @@ Mon_Tue_x = x_data[:len(pd.read_csv(Monday_file)) + len(pd.read_csv(Tuesday_file
 Mon_Tue_x = Mon_Tue_x.reshape(-1, 78)
 Mon_Tue_y = y_data[:len(pd.read_csv(Monday_file)) + len(pd.read_csv(Tuesday_file)), :]
 
+unique_labels = np.unique(Mon_Tue_y)
+print(f'unique_labels: {unique_labels}')
+
 """
 Split data
 """
@@ -253,10 +259,10 @@ y_train_full = Mon_Tue_y
 
 X_train, X_val, y_train, y_val = train_test_split(X_train_full, y_train_full, test_size=0.2, random_state=42)
 
-X_val = torch.tensor(X_val, dtype=torch.float32)
-y_val = torch.tensor(y_val, dtype=torch.long)
-X_train = torch.tensor(X_train, dtype=torch.float32)
-y_train = torch.tensor(y_train, dtype=torch.long)
+X_val = torch.tensor(X_val).float().clone().detach()
+y_val = torch.tensor(y_val).long().clone().detach()
+X_train = torch.tensor(X_train).float().clone().detach()
+y_train = torch.tensor(y_train).long().clone().detach()
 
 """
 Get dataloader
@@ -274,21 +280,21 @@ batch_size = 1024
 learning_rate = 0.0001
 similar_samples_ratio = 0.25
 
-for lmbda in lmbda_list:
-    for margin in margin_list:
-        model = Autoencoder().cuda()
-        optimizer_fn = torch.optim.Adam
-        optimizer = optimizer_fn(model.parameters(), lr=learning_rate)
-        start_time = time.time()
-        print(f'Start time: {time.strftime("%H:%M:%S", time.gmtime(start_time))}')
-        score = contrastiveAE_model(X_train, y_train, batch_size, similar_samples_ratio, learning_rate, margin, lmbda, val_dataloader, 'initial', model, optimizer)
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        elapsed_time_seconds = end_time - start_time
-        elapsed_time_minutes = elapsed_time_seconds / 60
-        elapsed_time_hours = elapsed_time_minutes / 60
-        print(f'End time: {time.strftime("%H:%M:%S", time.gmtime(end_time))}')
-        print(f'Elapsed time for lambda= {lmbda}, margin= {margin}: {elapsed_time_seconds} seconds, {elapsed_time_minutes} minutes, {elapsed_time_hours} hours, loss {score}')
+# for lmbda in lmbda_list:
+#     for margin in margin_list:
+#         model = Autoencoder().cuda()
+#         optimizer_fn = torch.optim.Adam
+#         optimizer = optimizer_fn(model.parameters(), lr=learning_rate)
+#         start_time = time.time()
+#         print(f'Start time: {time.strftime("%H:%M:%S", time.gmtime(start_time))}')
+#         score = contrastiveAE_model(X_train, y_train, batch_size, similar_samples_ratio, learning_rate, margin, lmbda, val_dataloader, 'initial', model, optimizer)
+#         end_time = time.time()
+#         elapsed_time = end_time - start_time
+#         elapsed_time_seconds = end_time - start_time
+#         elapsed_time_minutes = elapsed_time_seconds / 60
+#         elapsed_time_hours = elapsed_time_minutes / 60
+#         print(f'End time: {time.strftime("%H:%M:%S", time.gmtime(end_time))}')
+#         print(f'Elapsed time for lambda= {lmbda}, margin= {margin}: {elapsed_time_seconds} seconds, {elapsed_time_minutes} minutes, {elapsed_time_hours} hours, loss {score}')
 
 
 """
@@ -340,11 +346,17 @@ def get_MAD_for_each_family(dis_family, N, N_family):
 
     return mad_family, median_list
 
+def assign_labels(z_test, centroids):
+    dist_matrix = distance.cdist(z_test, centroids, 'euclidean')
+    labels = np.argmin(dist_matrix, axis=1)
+    return labels
 """
 NEED TO LOAD THE MODEL!!!!
 """
 # TODO
-# .....
+
+model = Autoencoder().cuda()
+model.load_state_dict(torch.load('initial_Models/CADE-m1.0-l0.001.pth'))
 
 
 z_train = predict(X_train, model)
@@ -355,7 +367,7 @@ dis_family = get_latent_distance_between_sample_and_centroid(z_family, centroids
 mad_family, dis_family = get_MAD_for_each_family(dis_family, N, N_family)
 
 
-def sample_selection(X_test, y_test, z_test, thres, selection_rate=0.01):
+def sample_selection(X_test, y_test, z_test, selection_rate=selection_rate):
     centroids_array = np.array(centroids)  
     dis_matrix = distance.cdist(z_test, centroids_array, 'euclidean')
     
@@ -366,38 +378,83 @@ def sample_selection(X_test, y_test, z_test, thres, selection_rate=0.01):
     sorted_indexes_desc = sorted_indexes_asc[::-1]
     sr = int(selection_rate * len(X_test))
     selected_idx = sorted_indexes_desc[:sr]
-    return X_test[selected_idx], y_test[selected_idx]
+
+    selected_idx_copy = selected_idx.copy().astype(int)
+    return selected_idx_copy
 
 
-
+"""
+Load Wed, Thurs, Fri data
+"""
 Wednesday_start = len(pd.read_csv(Monday_file)) + len(pd.read_csv(Tuesday_file))
 Wednesday_end = Wednesday_start + len(pd.read_csv(Wednesday_file))
 Wednesday_data = x_data[Wednesday_start:Wednesday_end, :]
 Wednesday_x = Wednesday_data.reshape(-1, 78)
 Wednesday_y = y_data[Wednesday_start:Wednesday_end, :]
 
-selected_x, selected_y = sample_selection(Wednesday_x, Wednesday_y, predict(Wednesday_x, model), 0.5, 0.01)
-Wednesday_selected = Wednesday_data[selected_x]
-Wednesday_selected_y = Wednesday_y[selected_y]
+Thursday_start = Wednesday_end
+Thursday_end = Thursday_start + len(pd.read_csv(Thursday_file))
+Thursday_data = x_data[Thursday_start:Thursday_end, :]
+Thursday_x = Thursday_data.reshape(-1, 78)
+Thursday_y = y_data[Thursday_start:Thursday_end, :]
 
-X_train = np.concatenate((X_train, Wednesday_selected))
-y_train_full = np.concatenate((y_train, Wednesday_selected_y))
-train_dataloader = get_dataloader(torch.tensor(X_train, dtype=torch.float32), torch.tensor(y_train_full, dtype=torch.long), 1024, 0.25)
+Friday_start = Thursday_end
+Friday_end = Friday_start + len(pd.read_csv(Friday_file))
+Friday_data = x_data[Friday_start:Friday_end, :]
+Friday_x = Friday_data.reshape(-1, 78)
+Friday_y = y_data[Friday_start:Friday_end, :]
 
-model = Autoencoder().cuda()
-optimizer_fn = torch.optim.Adam
-optimizer = optimizer_fn(model.parameters(), lr=learning_rate)
-scheduler = CosineAnnealingLR(optimizer, T_max= 250 * len(train_dataloader), eta_min=learning_rate * 5e-4)
-contrastiveAE_model(X_train, y_train_full, batch_size, similar_samples_ratio, learning_rate, best_margin, best_lambda, train_dataloader, 'Wednesday', model, optimizer)
 
-z_train = predict(X_train, model)
-N, N_family, z_family = get_latent_data_for_each_family(z_train, y_train_full)
-centroids = [np.mean(z_family[i], axis=0) for i in range(N)]
-dis_family = get_latent_distance_between_sample_and_centroid(z_family, centroids, N, N_family)
-mad_family, dis_family = get_MAD_for_each_family(dis_family, N, N_family)
+"""
+Train Wed, Thurs, Fri
+"""
 
-X_test = np.delete(Wednesday_x, selected_x, axis=0)
-y_test = np.delete(Wednesday_y, selected_y, axis=0)
+for day in ['Wednesday', 'Thursday', 'Friday']:
+    if day == 'Wednesday':
+        x = Wednesday_x
+        y = Wednesday_y
+    elif day == 'Thursday':
+        x = Thursday_x
+        y = Thursday_y
+    elif day == 'Friday':
+        x = Friday_x
+        y = Friday_y
+    selected_indices = sample_selection(x, y, predict(x, model), selection_rate=selection_rate)
+    selected_indices_torch = torch.tensor(selected_indices, dtype=torch.long)
+    x_selected = x[selected_indices_torch.numpy()]
+    y_selected = y[selected_indices_torch.numpy()]
 
-z_test = predict(X_test, model)
+    X_train = np.concatenate((X_train, x_selected))
+    y_train = np.concatenate((y_train, y_selected))
+    train_dataloader = get_dataloader(torch.tensor(X_train, dtype=torch.float32), torch.tensor(y_train, dtype=torch.long), batch_size=batch_size, similar_samples_ratio=similar_samples_ratio)
+
+    model = Autoencoder().cuda()
+    optimizer_fn = torch.optim.Adam
+    optimizer = optimizer_fn(model.parameters(), lr=learning_rate)
+    scheduler = CosineAnnealingLR(optimizer, T_max= 250 * len(train_dataloader), eta_min=learning_rate * 5e-4)
+    # contrastiveAE_model(X_train, y_train_full, batch_size, similar_samples_ratio, learning_rate, best_margin, best_lambda, train_dataloader, 'Wednesday', model, optimizer)
+    contrastiveAE_model(X_train, y_train, batch_size, similar_samples_ratio, learning_rate, 1.0, 0.001, train_dataloader, day, model, optimizer)
+
+    z_train = predict(X_train, model)
+    N, N_family, z_family = get_latent_data_for_each_family(z_train, y_train)
+    centroids = [np.mean(z_family[i], axis=0) for i in range(N)]
+    dis_family = get_latent_distance_between_sample_and_centroid(z_family, centroids, N, N_family)
+    mad_family, dis_family = get_MAD_for_each_family(dis_family, N, N_family)
+
+    X_test = np.delete(x, selected_indices, axis=0)
+    y_test = np.delete(y, selected_indices, axis=0)
+    z_test = predict(X_test, model)
+
+    day_labels = np.unique(y_test)
+    unique_labels = np.concatenate((unique_labels, day_labels))
+    unique_labels = np.unique(unique_labels)
+    print(f'unique_labels: {unique_labels}')
+    num_classes = len(unique_labels)
+
+    z_test = assign_labels(z_test, centroids)
+    
+    print(f'{day} Conservative classification Report: ')
+    print(classification_report(y_test, z_test, labels=list(range(num_classes)), zero_division=0))
+    print(f'{day} Non-Conservative classification Report: ')
+    print(classification_report(y_test, z_test, labels=list(range(num_classes)), zero_division=1))
 
