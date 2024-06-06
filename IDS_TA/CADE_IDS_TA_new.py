@@ -194,7 +194,7 @@ class main_tariner():
         )
         self.classifer_model_criterion = nn.CrossEntropyLoss() # Loss function
 
-        self.selection_rate = 0.03
+        self.selection_rate = 0.05
 
         self.lmbda_list = [1.0, 0.1, 0.01, 0.001]
         self.margin_list = [1.0, 5.0, 10.0, 15.0, 20.0]
@@ -448,11 +448,22 @@ class main_tariner():
                 self.y_train = self.Mon_Tue_y
                 
                 # Reset the classifier
+
+                self.dictionary = {
+                    "0":0, 
+                    "1":1,
+                    "2":2
+                    }
                 self.num_classes = 3
                 self.dynamic_classifier = DynamicClassifier(feature_size=512, num_classes=self.num_classes)
                 self.dynamic_classifier.to(self.device)
 
                 self.load_model_states(self.classifer_model, self.dynamic_classifier)
+
+                self.classifer_model_optimizer = optim.Adam(
+                    list(self.classifer_model.parameters()) + list(self.dynamic_classifier.parameters()),
+                    lr=self.classifer_model_lr, weight_decay=0.0001
+                )
 
                 weights_size = self.dynamic_classifier.get_weights_size()
                 biases_size = self.dynamic_classifier.get_biases_size()
