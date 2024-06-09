@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from sklearn.cluster import KMeans
 import torch
 from torch.utils.data import DataLoader, TensorDataset, Subset
 import indexed_Dataset 
@@ -7,6 +8,8 @@ from scipy.spatial.distance import cdist
 import subprocess
 from sklearn.decomposition import PCA
 import argparse
+from sklearn.metrics import silhouette_score
+import matplotlib.pyplot as plt
 
 # Load training data
 def load_data():
@@ -111,7 +114,6 @@ def cluster_sample(full_dataset, full_dataset_pca, C, rs_rate = 0.05):
     np.save('/vol/bitbucket/kp620/FYP/dataset/selected_indice.npy', selected_indices)
     
 
-
 def main(rs_rate = 0.001, d = 10, K = 15):
     full_dataset = load_data()
     command = "echo 'loading finished'"
@@ -135,8 +137,8 @@ def main(rs_rate = 0.001, d = 10, K = 15):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--rs_rate",  type=float, help='Specify random sampling rate')
-parser.add_argument("--d", type=float, help='Specify the dimension of PCA')
-parser.add_argument("--K", type=float, help='Specify the number of clusters')
+parser.add_argument("--d", type=int, help='Specify the dimension of PCA')
+parser.add_argument("--K", type=int, help='Specify the number of clusters')
 args = parser.parse_args()
 
 main(args.rs_rate, args.d, args.K)

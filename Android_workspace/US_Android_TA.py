@@ -52,13 +52,6 @@ class main_tariner():
 
         self.selection_rate = 400
 
-        self.lmbda_list = [1.0, 0.1, 0.01, 0.001]
-        self.margin_list = [1.0, 5.0, 10.0, 15.0, 20.0]
-        self.similar_samples_ratio = 0.25
-
-        self.CADE_optimizer_fn = torch.optim.Adam
-        self.CADE_optimizer = self.CADE_optimizer_fn(self.CADE_model.parameters(), lr=0.0001)
-
         
         self.directory = '/vol/bitbucket/kp620/FYP/NON_FINAL/Android_workspace/data/gen_apigraph_drebin'
         self.training_file = [f'{self.directory}/2012-01to2012-12_selected.npz']
@@ -120,6 +113,7 @@ class main_tariner():
 
     
     def uncertainty_sampling(self, model, x_data, y_data, num_select, device, dtype, batch_size = 1024):
+        num_select = int(num_select)
         # Make sure the model is in evaluation mode
         model.eval()
         # Ensure x_data and y_data are on the same device as the model
@@ -162,7 +156,7 @@ class main_tariner():
                     X_data, y_test = self.load_data(file)
 
 
-                    for i in range(10):
+                    for _ in range(10):
                         selected_indices = self.uncertainty_sampling(self.classifer_model, X_data, y_test, self.selection_rate/5, self.device, self.dtype)
                         # ----------------------------
                         # Train the classifier  

@@ -52,13 +52,6 @@ class main_tariner():
 
         self.selection_rate = 400
 
-        self.lmbda_list = [1.0, 0.1, 0.01, 0.001]
-        self.margin_list = [1.0, 5.0, 10.0, 15.0, 20.0]
-        self.similar_samples_ratio = 0.25
-
-        self.CADE_optimizer_fn = torch.optim.Adam
-        self.CADE_optimizer = self.CADE_optimizer_fn(self.CADE_model.parameters(), lr=0.0001)
-
         
         self.directory = '/vol/bitbucket/kp620/FYP/NON_FINAL/Android_workspace/data/gen_apigraph_drebin'
         self.training_file = [f'{self.directory}/2012-01to2012-12_selected.npz']
@@ -120,6 +113,7 @@ class main_tariner():
 
     
     def random_sampling(self, x_data, num_select):
+        num_select = int(num_select)
         num_samples = x_data.shape[0]
         all_indices = torch.randperm(num_samples)
         selected_indices = all_indices[:num_select]
@@ -141,12 +135,14 @@ class main_tariner():
                 self.initial_train()
 
                 for i in range(0,len(self.test_files)-1):
+                    command = "echo 'Training file: " + str(self.test_files[i]) + "'"
+                    subprocess.call(command, shell=True)
                     file = self.test_files[i]
                     print("train file: ", file)
                     X_data, y_test = self.load_data(file)
 
 
-                    for i in range(10):
+                    for _ in range(10):
                         selected_indices = self.random_sampling(X_data, self.selection_rate/5)
                         # ----------------------------
                         # Train the classifier  
@@ -166,6 +162,8 @@ class main_tariner():
                     # ----------------------------
                     # Test the classifier
                     print("Testing the classifier on next month")
+                    command = "echo 'Testing file: " + str(self.test_files[i+1]) + "'"
+                    subprocess.call(command, shell=True)
                     test_file = self.test_files[i+1]
                     print("Test file: ", test_file)
                     X_test, y_test = self.load_data(test_file)
