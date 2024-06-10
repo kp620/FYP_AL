@@ -1,3 +1,7 @@
+"""
+Check the device and data type
+"""
+
 import torch
 
 def check_device():

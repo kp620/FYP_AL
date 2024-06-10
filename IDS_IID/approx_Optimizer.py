@@ -1,3 +1,8 @@
+"""
+CITE: Yao Z, Gholami A, Shen S, Mustafa M, Keutzer K, Mahoney M. Adahessian: An adaptive second order optimizer for machine learning. Inproceedings of the AAAI conference on artificial intelligence 2021 May 18 (Vol. 35, No. 12, pp. 10665-10673).
+"""
+
+
 import math
 import torch
 from torch.optim.optimizer import Optimizer
@@ -69,11 +74,9 @@ class Adahessian(Optimizer):
                     + "\t\t\t  loss.backward(), make sure the option create_graph is\n"
                     + "\t\t\t  set to True."
                 )
-
         # Random vector generation(same shape as the parameter)
         # This vector is used to perform a stochastic estimation of the Hessian
         v = [2 * torch.randint_like(p, high=2) - 1 for p in params]
-
         if not params or not grads:
             raise ValueError("params or grads are empty, ensure that model parameters require gradients and a backward pass has been executed.")
         # Calculates the gradient of the dot product <grads,v>, which gives the Hessian-vector product 'hv'
@@ -83,7 +86,6 @@ class Adahessian(Optimizer):
         hvs = torch.autograd.grad(
             grads, params, grad_outputs=v, only_inputs=True, retain_graph=True
         )
-
         reduced_grads = []
         hutchinson_trace = []
         for grad, hv, vi in zip(grads, hvs, v):
@@ -92,10 +94,8 @@ class Adahessian(Optimizer):
           # Flattened gradient for that parameter
           # Turn the gradient tensors into a 1D vector, which is often required for optimizer updates
             tmp_grad = grad
-
             hutchinson_trace.append(tmp_output.detach())
             reduced_grads.append(tmp_grad.detach().flatten())
-
         # hutchison_trace: contains the estimated Hessian diagonals for all parameters
         # reduced_grad: contains the flattened gradients for all parameters
         return hutchinson_trace, reduced_grads
@@ -105,17 +105,12 @@ class Adahessian(Optimizer):
         Arguments:
             momentum (bool, optional): enables the momentum technique (default: False)
         """
-
         params = []
         groups = []
         grads = []
-
-
         # Works with parameter groups, which allows for different parameters to have different optimization settings
-
         # Flatten groups into lists, so that
-        #  hut_traces can be called with lists of parameters
-        #  and grads
+        # hut_traces can be called with lists of parameters and grads
         for group in self.param_groups:
             for p in group["params"]:
                 if p.grad is not None:
@@ -123,9 +118,7 @@ class Adahessian(Optimizer):
                     groups.append(group)
                     grads.append(p.grad)
 
-
-        # get the Hessian diagonal
-
+        # Get the Hessian diagonal
         hutchinson_trace_moment = []
         # Compute Hutchinson trace, which approximates the Hessian diagonal and reduced gradients
         if momentum:
@@ -134,7 +127,6 @@ class Adahessian(Optimizer):
             # Initialize or update the state for each parameter
             for (p, group, grad, hut_trace) in zip(params, groups, grads, hut_traces):
                 state = self.state[p]
-
                 # State initialization
                 if len(state) == 0:
                     state["step"] = 0
@@ -142,34 +134,26 @@ class Adahessian(Optimizer):
                     state["exp_avg"] = torch.zeros_like(p.data)
                     # Exponential moving average of Hessian diagonal square values
                     state["exp_hessian_diag_sq"] = torch.zeros_like(p.data)
-
                 exp_avg, exp_hessian_diag_sq = (
                     state["exp_avg"],
                     state["exp_hessian_diag_sq"],
                 )
-
-
                 # For each parameter, the function updates the state dictionary.
                 # Involves incrementing the step count and computing the biased averages of the gradient and the hessian diagonal
                 beta1, beta2 = group["betas"]
-
                 state["step"] += 1
-
                 # Decay the first and second moment running average coefficient
                 exp_avg.mul_(beta1).add_(grad.detach_(), alpha=1 - beta1)
                 exp_hessian_diag_sq.mul_(beta2).addcmul_(hut_trace, hut_trace, value=1 - beta2)
-
                 bias_correction1 = 1 - beta1 ** state['step']
                 bias_correction2 = 1 - beta2 ** state['step']
-
                 # The denominator of the parameter update
-                # make the square root, and the Hessian power
+                # Make the square root, and the Hessian power
                 k = group['hessian_power']
                 denom = (
                     (exp_hessian_diag_sq.sqrt() ** k) /
                     math.sqrt(bias_correction2) ** k).add_(
                     group['eps'])
-
                 # Actual parameter update is computed by dividing the biased-corrected gradient by the computed denominator
                 reduced_grads.append((exp_avg / bias_correction1).detach().flatten())
                 hutchinson_trace_moment.append(denom.detach().flatten())
@@ -181,11 +165,9 @@ class Adahessian(Optimizer):
                 reduced_grads.append(grad.detach().flatten())
             reduced_grads = torch.cat(reduced_grads).detach()
             return reduced_grads, hutchinson_trace, hutchinson_trace_moment
-
         hutchinson_trace = []
         for hut_trace in hut_traces:
             hutchinson_trace.append(hut_trace.detach().flatten())
-
         hutchinson_trace = torch.cat(hutchinson_trace).detach()
         reduced_grads = torch.cat(reduced_grads).detach()
         return reduced_grads, hutchinson_trace, hutchinson_trace_moment

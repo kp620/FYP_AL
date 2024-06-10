@@ -1,8 +1,13 @@
+"""
+Calculate uncertainties and similarities for each unlabelled sample
+Output continuous states for each unlabelled sample
+"""
+
 import numpy as np
 import torch
 import torch.nn.functional as F
-import subprocess
 
+# Calculate uncertainties for each unlabelled sample
 def cal_uncertainties(model, unlabel_loader, device, dtype):
     uncertainties = []
     model.eval()
@@ -19,30 +24,30 @@ def cal_uncertainties(model, unlabel_loader, device, dtype):
     model.train()
     return uncertainties
 
-
+# Calculate similarities for each unlabelled sample
 def cal_similarities(eigenv, label_loader, unlabel_loader, sigma, device, dtype):
     # Collect all label features into a single tensor
     label_features = []
     for data, _ ,_ in label_loader:
         features = data.squeeze(1).to(device=device, dtype=dtype)  # Adjust processing as needed
-        features = torch.mm(features, eigenv) # NEED TO TEST SIZE!!!!
+        features = torch.mm(features, eigenv) 
         label_features.append(features)
     label_features = torch.cat(label_features, dim=0)
-
     similarities = []
     for inputs, _, _ in unlabel_loader:
         inputs = inputs.squeeze(1).to(device=device, dtype=dtype)
-        inputs = torch.mm(inputs, eigenv) # NEED TO TEST SIZE!!!!
+        inputs = torch.mm(inputs, eigenv) 
         # Expand dimensions for broadcasting and calculate distances
         distances = torch.cdist(inputs, label_features)
         min_distances = torch.min(distances, dim=1).values
         similarity = torch.exp(-(min_distances ** 2) / (2 * sigma ** 2))
         similarities.append(similarity.cpu().numpy())
-    
     return np.concatenate(similarities)
 
+# Calculate continuous states for each unlabelled sample
 def continuous_states(eigenv, label_loader, unlabel_loader, model, device, dtype, alpha, sigma):
     uncertainties = cal_uncertainties(model, unlabel_loader, device, dtype)
     similarities = cal_similarities(eigenv, label_loader, unlabel_loader, sigma, device, dtype)
+    # Combine uncertainties and similarities
     continuous_states = alpha * uncertainties + (1-alpha) * (1 - similarities)
     return continuous_states

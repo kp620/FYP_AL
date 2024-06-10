@@ -1,9 +1,14 @@
+"""
+Define the ResNet1D model for the IDS_IID dataset
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 
+# Define the ResNet1D model
 class BasicBlock1D(nn.Module):
     expansion = 1
     def __init__(self, in_channels, out_channels, stride=1):
@@ -26,7 +31,8 @@ class BasicBlock1D(nn.Module):
         out += self.shortcut(x)
         out = F.relu(out)
         return out
-
+    
+# Define the ResNet1D model
 class ResNet1D(nn.Module):
     def __init__(self, block, num_blocks, num_classes=2):
         super(ResNet1D, self).__init__()
@@ -59,18 +65,21 @@ class ResNet1D(nn.Module):
         out = self.linear(pre_linear)
         return out, pre_linear
 
+# Initialize the ResNet1D model
 def ResNet18_1D(num_classes=2):
     return ResNet1D(BasicBlock1D, [2, 2, 2, 2], num_classes=num_classes)
 
+# Explain the model
 def explain_model(class_type):
     if class_type == "multi":
         print("Building multiclass model...")
         model = ResNet18_1D(num_classes=15)
-    # print(model)
+    print(model)
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Total number of parameters is: ", params)
     return model
 
+# Build the model
 def build_model(class_type):
     model = explain_model(class_type)
     # kaiming initialization
@@ -80,6 +89,7 @@ def build_model(class_type):
             torch.nn.init.zeros_(model.bias)
     return model
 
+# Train the model
 def train(model, train_loader, device, dtype, criterion, learning_rate):
     model.train()
     model = model.to(device=device)
@@ -98,6 +108,7 @@ def train(model, train_loader, device, dtype, criterion, learning_rate):
         if epoch % 10 == 0:
             print("Epoch: ", epoch, "Loss: ", loss.item())
 
+# Measure the gradients
 def gradient_train(model, unlabel_loader, pseudo_labels, device, dtype, batch_size, criterion):
     gradients = []
     model = model.to(device=device)
@@ -105,7 +116,6 @@ def gradient_train(model, unlabel_loader, pseudo_labels, device, dtype, batch_si
     for batch, (input, target, idx) in enumerate(unlabel_loader):
         input = input.to(device=device, dtype=dtype)
         pseudo_y = pseudo_labels[idx].to(device=device, dtype=dtype).squeeze().long()
-        # pseudo_y = pseudo_labels[batch * batch_size: (batch + 1) * batch_size].to(device=device, dtype=dtype).squeeze().long()
         output, pre_linear_output = model(input)
         # Enable gradient retention for non-leaf tensor
         pre_linear_output.retain_grad()
@@ -120,6 +130,7 @@ def gradient_train(model, unlabel_loader, pseudo_labels, device, dtype, batch_si
     model.train()
     return gradients
 
+# Pseudo labeling
 def psuedo_labeling(model, devc, dtype, loader):
     pseudo_labels = []
     with torch.no_grad():
