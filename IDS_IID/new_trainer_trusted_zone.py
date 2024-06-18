@@ -20,8 +20,8 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 # Argument parser
 # Create the parser
 parser = argparse.ArgumentParser()
-parser.add_argument("--operation_type",  choices=['iid'], help='Specify operation type: "iid"')
-parser.add_argument("--class_type", choices=['multi'], help='Specify class type: "multi"')
+# parser.add_argument("--operation_type",  choices=['iid'], help='Specify operation type: "iid"')
+# parser.add_argument("--class_type", choices=['multi'], help='Specify class type: "multi"')
 parser.add_argument("--budget", type=float, help='Specify the budget ratio')
 args = parser.parse_args()
 
@@ -37,7 +37,7 @@ class main_trainer():
         # Model & Parameters
         self.Model_trainer = model_Trainer # Model trainer
         self.Model = restnet_1d # Model
-        self.model = self.Model.build_model(class_type=self.args.class_type) # Model used to train the data(M_0)
+        self.model = self.Model.build_model("multi") # Model used to train the data(M_0)
         self.batch_size = 1024 # Batch size
         self.lr = 0.00001 # Learning rate
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=0.0001) # Optimizer
@@ -81,30 +81,29 @@ class main_trainer():
     # Given the initial dataset, select a subset of the dataset to train the initial model M_0
     def initial_training(self):
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
-        if(self.args.operation_type == 'iid'): 
-            print("Loading selected and non-selected samples...")
-            data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
-            self.eigenv = np.load(f'{data_dic_path}/eigvecs_d.npy') # Load eigenvectors
-            self.eigenv = torch.tensor(self.eigenv, dtype=self.dtype, device=self.device)
-            selected_indice = np.load(f'{data_dic_path}/selected_indice.npy')
-            not_selected_indice = np.load(f'{data_dic_path}/not_selected_indice.npy')
-            print("Training samples loaded!")
-            x_data = pd.read_csv(f'{data_dic_path}/x_data_iid_multiclass.csv').astype(float)
-            y_data = pd.read_csv(f'{data_dic_path}/y_data_iid_multiclass.csv').astype(float)
-            self.budget = int(len(x_data) * self.budget_ratio) # Budget
-            print("Budget: ", self.budget)
-            x_data = torch.from_numpy(x_data.values)
-            y_data = torch.from_numpy(y_data.values)
-            full_dataset = TensorDataset(x_data, y_data)
-            x_data = full_dataset.tensors[0].numpy()
-            x_data = torch.from_numpy(x_data).unsqueeze(1)
-            full_dataset = TensorDataset(x_data, full_dataset.tensors[1])
-            not_selected_data = Subset(full_dataset, not_selected_indice)
-            selected_data = Subset(full_dataset, selected_indice)
-            # Loader used to train the initial model
-            self.label_loader = DataLoader(indexed_Dataset.IndexedDataset(selected_data), batch_size=self.batch_size, shuffle=True, drop_last=False)
-            # Loader used to acquire pseudo labels
-            self.unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(not_selected_data), batch_size=self.batch_size, shuffle=True, drop_last=False)
+        print("Loading selected and non-selected samples...")
+        data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
+        self.eigenv = np.load(f'{data_dic_path}/eigvecs_d.npy') # Load eigenvectors
+        self.eigenv = torch.tensor(self.eigenv, dtype=self.dtype, device=self.device)
+        selected_indice = np.load(f'{data_dic_path}/selected_indice.npy')
+        not_selected_indice = np.load(f'{data_dic_path}/not_selected_indice.npy')
+        print("Training samples loaded!")
+        x_data = pd.read_csv(f'{data_dic_path}/x_data_iid_multiclass.csv').astype(float)
+        y_data = pd.read_csv(f'{data_dic_path}/y_data_iid_multiclass.csv').astype(float)
+        self.budget = int(len(x_data) * self.budget_ratio) # Budget
+        print("Budget: ", self.budget)
+        x_data = torch.from_numpy(x_data.values)
+        y_data = torch.from_numpy(y_data.values)
+        full_dataset = TensorDataset(x_data, y_data)
+        x_data = full_dataset.tensors[0].numpy()
+        x_data = torch.from_numpy(x_data).unsqueeze(1)
+        full_dataset = TensorDataset(x_data, full_dataset.tensors[1])
+        not_selected_data = Subset(full_dataset, not_selected_indice)
+        selected_data = Subset(full_dataset, selected_indice)
+        # Loader used to train the initial model
+        self.label_loader = DataLoader(indexed_Dataset.IndexedDataset(selected_data), batch_size=self.batch_size, shuffle=True, drop_last=False)
+        # Loader used to acquire pseudo labels
+        self.unlabel_loader = DataLoader(indexed_Dataset.IndexedDataset(not_selected_data), batch_size=self.batch_size, shuffle=True, drop_last=False)
             
         # Train the initial model over the label set
         print("Initial training start!")
@@ -351,7 +350,7 @@ class main_trainer():
         print("Greedy FL Complete at step: ", training_step)
 
     def test_accuracy_without_weight(self):
-        test_model = self.Model.build_model(class_type=self.args.class_type)
+        test_model = self.Model.build_model("multi")
         optimizer = optim.Adam(test_model.parameters(), lr=self.lr, weight_decay=0.0001)
         print("Testing accuracy without weight!")
         unlabel_loader = self.unlabel_loader
@@ -417,7 +416,7 @@ class main_trainer():
         # subprocess.call(command, shell=True)
     
     def test_accuracy_with_weight(self):
-        test_model = self.Model.build_model(class_type=self.args.class_type)
+        test_model = self.Model.build_model("multi")
         optimizer = optim.Adam(test_model.parameters(), lr=self.lr, weight_decay=0.0001)
         print("Testing accuracy with weight!")
         unlabel_loader = self.unlabel_loader

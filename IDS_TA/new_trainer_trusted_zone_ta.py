@@ -23,8 +23,6 @@ import torch.nn.init as init
 # Argument parser
 # Create the parser
 parser = argparse.ArgumentParser()
-parser.add_argument("--operation_type",  choices=['iid'], help='Specify operation type: "iid"')
-parser.add_argument("--class_type", choices=['multi'], help='Specify class type: "multi"')
 parser.add_argument("--budget", type=float, help='Specify the budget ratio')
 args = parser.parse_args()
 
@@ -88,7 +86,7 @@ class main_trainer():
         self.dynamic_classifier = DynamicClassifier(feature_size=512, num_classes=self.num_classes)
         self.dynamic_classifier.to(self.device) 
 
-        self.model = self.Model.build_model(class_type=self.args.class_type) # Model used to train the data(M_0)
+        self.model = self.Model.build_model("multi") # Model used to train the data(M_0)
         self.batch_size = 1024 # Batch size
         self.lr = 0.00001 # Learning rate
         # self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=0.0001) # Optimizer

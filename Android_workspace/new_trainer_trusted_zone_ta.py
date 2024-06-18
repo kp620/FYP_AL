@@ -1,3 +1,7 @@
+"""
+Main training logic for the coreset selection algorithm with trust region constraint under TA setting.
+"""
+
 # --------------------------------
 # Import area
 import test_Cuda, approx_Optimizer, indexed_Dataset, uncertainty_similarity
@@ -21,8 +25,8 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 # Argument parser
 # Create the parser
 parser = argparse.ArgumentParser()
-parser.add_argument("--operation_type",  choices=['iid', 'time-aware'], help='Specify operation type: "iid" or "time-aware"')
-parser.add_argument("--class_type", choices=['binary', 'multi'], help='Specify class type: "binary" or "multi"')
+# parser.add_argument("--operation_type",  choices=['iid', 'time-aware'], help='Specify operation type: "iid" or "time-aware"')
+# parser.add_argument("--class_type", choices=['binary', 'multi'], help='Specify class type: "binary" or "multi"')
 parser.add_argument("--budget", type=float, help='Specify the budget')
 args = parser.parse_args()
 
@@ -38,7 +42,7 @@ class main_trainer():
         # Model & Parameters
         self.Model_trainer = model_Trainer # Model trainer
         self.Model = restnet_1d # Model
-        self.model = self.Model.build_model(class_type=self.args.class_type) # Model used to train the data(M_0)
+        self.model = self.Model.build_model("binary") # Model used to train the data(M_0)
         self.batch_size = 1024 # Batch size
         self.lr = 0.00001 # Learning rate
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=0.0001) # Optimizer
@@ -109,9 +113,7 @@ class main_trainer():
         data = np.load(file)
         x_train = data['X_train']
         y_train = data['y_train']
-
         y_train_binary = np.where(y_train == 0, 0, 1) # Convert to binary
-
         y_mal_family = data['y_mal_family']
         return x_train, y_train_binary, y_mal_family
     
@@ -119,20 +121,15 @@ class main_trainer():
         x_train = []
         y_train = []
         y_mal_family = []
-        command = "echo 'Loading file: " + str(file) + "'"
-        subprocess.call(command, shell=True)
+        print("Loading file: ", file)
         x, y, y_mal = self.load_file(os.path.join(self.directory, file))
         x_train.append(x)
         y_train.append(y)
         y_mal_family.append(y_mal)
         x_train = np.concatenate(x_train)
         y_train = np.concatenate(y_train)
-
         x_data = pd.DataFrame(x_train).astype(float)
         y_data = pd.DataFrame(y_train).astype(float)
-        command = "echo 'length of full data: " + str(len(x_data)) + "'"
-        subprocess.call(command, shell=True)
-
         x_data = torch.from_numpy(x_data.values)
         y_data = torch.from_numpy(y_data.values)
         full_dataset = TensorDataset(x_data, y_data)
@@ -143,89 +140,46 @@ class main_trainer():
         return loader 
 
     
- 
     def train_epoch(self, epoch):
         print("Training epoch: ", epoch)
         self.reset_step = self.steps_per_epoch
         # Training loop
         self.model.train()
         for training_step in range(self.steps_per_epoch * epoch, self.steps_per_epoch * (epoch + 1)):
-            # ---------------------print begin---------------------
-            command = "echo 'Training step: " + str(training_step) + "'"
-            subprocess.call(command, shell=True)
-            # ---------------------print end---------------------
+            print("Training step: ", training_step)
             # Check the approximation error
             if((training_step >= self.reset_step) and ((training_step - self.reset_step) % self.steps_per_epoch == 0)): 
-                # ---------------------print begin---------------------
-                command = "echo 'Extend coreset at step: " + str(training_step) + "'"
-                subprocess.call(command, shell=True)
-                self.extend_coreset(training_step)
-                command = "echo 'Extend coreset complete!'"
-                subprocess.call(command, shell=True)
-                # ---------------------print end---------------------
+                print("Update trustzone at step: ", training_step)
+                self.update_trustzone(training_step)
+                print("Update trustzone complete!")
 
             # Update the coreset
             if training_step == self.reset_step or training_step == 0:
-                # print("Updating coreset at step: ", training_step)
-                # ---------------------print begin---------------------
-                command = "echo 'Updating coreset at step: " + str(training_step) + "'"
-                subprocess.call(command, shell=True)
-                # ---------------------print end---------------------
+                print("Updating coreset at step: ", training_step)
 
-                # ---------------------print begin---------------------
                 continuous_state = uncertainty_similarity.continuous_states(self.eigenv, self.label_loader, self.unlabel_loader, self.model, self.device, self.dtype, alpha=self.alpha, sigma=self.sigma)
                 self.alpha = min(self.alpha + 0.01, self.alpha_max)
                 continuous_state = continuous_state[:, None]
-                command = "echo 'Continuous state shape: " + str(len(continuous_state)) + "'"
-                subprocess.call(command, shell=True)
-
 
                 self.gradients = self.Model_trainer.gradient_train(training_step, self.model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size=self.batch_size, criterion=self.criterion)
-                command = "echo 'Gradients shape: " + str(len(self.gradients)) + "'"
-                subprocess.call(command, shell=True)
-
                 self.gradients = self.gradients * continuous_state
-                # ---------------------print end---------------------
+
                 
-                
-                # ---------------------print begin---------------------
-                command = "echo 'select_subset at step: " + str(training_step) + "'"
-                subprocess.call(command, shell=True)
+                print("Selecting subset at step: ", training_step)
                 self.select_subset(training_step)
-                command = "echo 'select_subset complete!'"
-                subprocess.call(command, shell=True)
-                # ---------------------print end---------------------
-                
-                # for weight in self.weights:
-                #     self.final_weights.append(weight)
+                print("Subset selected!")
+
                 
                 self.update_train_loader_and_weights(training_step)
 
-                # Update the train loader and weights
-                # if self.final_coreset is None:
-                #     self.final_coreset = Subset(self.unlabel_loader.dataset, self.coreset_index)
-                # else:
-                    # if(len(self.final_coreset) > self.budget):
-                    #     print("Budget reached!")
-                    #     self.stop = 1
-                    #     break
-                    # self.final_coreset = ConcatDataset([self.final_coreset, Subset(self.unlabel_loader.dataset, self.coreset_index)])
-                # ---------------------print begin---------------------
-                # command = "echo 'Final coreset length at step: " + str(training_step) + " is " + str(len(self.final_coreset)) + "'"
-                # subprocess.call(command, shell=True)
-                # ---------------------print end---------------------
 
                 self.label_loader = ConcatDataset([self.label_loader.dataset.dataset, Subset(self.unlabel_loader.dataset.dataset, self.coreset_index)])
                 self.label_loader = DataLoader(indexed_Dataset.IndexedDataset(self.label_loader), batch_size=self.batch_size, shuffle=True, drop_last=False)
                 self.train_loader = self.coreset_loader
                 self.train_iter = iter(self.train_loader)
-                # ---------------------print begin---------------------
-                command = "echo 'Quadratic approximation at step: " + str(training_step) + "'"
-                subprocess.call(command, shell=True)
+                print("Quadratic approximation at step: ", training_step)
                 self.get_quadratic_approximation()
-                command = "echo 'Quadratic approximation complete!'"
-                subprocess.call(command, shell=True)
-                # ---------------------print end---------------------
+                print("Quadratic approximation complete!")
             try: 
                 batch = next(self.train_iter)
             except StopIteration:
@@ -234,49 +188,35 @@ class main_trainer():
 
             data, target, idx = batch
             data, target = data.to(self.device, dtype=self.dtype), target.to(self.device, dtype=self.dtype).squeeze().long()
-            # ---------------------print begin---------------------
-            command = "echo 'forward_and_backward at step: " + str(training_step) + "'"
-            subprocess.call(command, shell=True)
+            print("Forward and backward at step: ", training_step)
             self.forward_and_backward(data, target, idx)
-            command = "echo 'forward_and_backward at step: " + str(training_step) + " complete!'"
-            subprocess.call(command, shell=True)
-            # ---------------------print end---------------------
+            print("Forward and backward complete!")
     
     def main_train(self):
         epoch = len(self.test_files)
         self.label_loader = self.get_loader(self.training_file[0])
 
-        command = "echo 'Initial training...'"
-        subprocess.call(command, shell=True)
+        print("Initial training started...")
         self.Model_trainer.initial_train(self.label_loader, self.model, self.device, self.dtype, criterion=self.criterion, learning_rate=self.lr)
-        command = "echo 'Initial training complete!'"
-        subprocess.call(command, shell=True)
+        print("Initial training complete!")
 
 
         for e in range(epoch-1):
-            command = "echo 'Training file: " + str(self.test_files[e]) + "'"
-            subprocess.call(command, shell=True)
+            print("Training file: ", self.test_files[e])
             self.unlabel_loader = self.get_loader(self.test_files[e])
             
-            command = "echo 'Acquiring pseudo labels...'"
-            subprocess.call(command, shell=True)
+            print("Pseudo labeling started...")
             self.pseudo_labels = self.Model_trainer.psuedo_labeling(self.model, self.device, self.dtype, loader=self.unlabel_loader)
-            command = "echo 'Pseudo labels acquired!'"
-            subprocess.call(command, shell=True)
+            print("Pseudo labeling complete!")
 
             for i in range(4):
                 self.train_epoch(i)
-            command = "echo 'Testing file: " + str(self.test_files[e+1]) + "'"
-            subprocess.call(command, shell=True)
+            print("Testing file: ", self.test_files[e+1])
             self.test_accuracy(self.test_files[e+1])
         
         self.f1 = self.f1 / epoch
         self.FNR = self.FNR / epoch
         self.FPR = self.FPR / epoch
-        command = "echo 'Average f1 score: " + str(self.f1) + "'"
-        subprocess.call(command, shell=True)
-        command = "echo 'Average FNR (False Negative Rate): " + str(self.FNR) + "' + 'Average FPR (False Positive Rate): " + str(self.FPR) + "'"
-        subprocess.call(command, shell=True)
         print("Average f1 score: ", self.f1)
         print("Average FNR (False Negative Rate): ", self.FNR)
         print("Average FPR (False Positive Rate): ", self.FPR)
@@ -302,7 +242,7 @@ class main_trainer():
         self.optimizer.step()
         self.apply_fractional_optimal_step()
 
-    def extend_coreset(self, training_step):   
+    def update_trustzone(self, training_step):   
         true_loss = 0 
         count = 0 
         self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, indices=self.coreset_index), batch_size=self.batch_size, shuffle=False, drop_last=False)
@@ -382,7 +322,6 @@ class main_trainer():
         if step_norm > self.delta:
             step *= self.delta / step_norm  # Scale step to fit within the trust region
         self.optimal_step = step
-        print("Quadratic approximation complete!")
 
     def update_train_loader_and_weights(self, training_step):
         print("Updating train loader and weights at step: ", training_step)

@@ -71,9 +71,6 @@ def explain_model(class_type):
     if class_type == "binary":
         print("Building binary model...")
         model = ResNet18_1D(num_classes=2)
-    elif class_type == "multi":
-        print("Building multiclass model...")
-        model = ResNet18_1D(num_classes=2)
     # print(model)
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Total number of parameters is: ", params)
