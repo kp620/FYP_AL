@@ -1,3 +1,7 @@
+"""
+Code performing RS on the IDS dataset under TA setting
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

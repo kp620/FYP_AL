@@ -1,3 +1,7 @@
+"""
+RestNet1D model but with the ability to change the number of classes in the output layer
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

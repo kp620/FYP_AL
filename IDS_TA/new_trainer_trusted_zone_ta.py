@@ -1,3 +1,7 @@
+"""
+Main training logic for the coreset selection algorithm with trust region constraint under TA setting.
+"""
+
 # --------------------------------
 # Import area
 import test_Cuda, approx_Optimizer, facility_Update, indexed_Dataset, uncertainty_similarity
@@ -24,6 +28,7 @@ parser.add_argument("--class_type", choices=['multi'], help='Specify class type:
 parser.add_argument("--budget", type=float, help='Specify the budget ratio')
 args = parser.parse_args()
 
+# Define the dynamic classifier, which determines the number of classes of the output layer
 class DynamicClassifier(nn.Module):
     def __init__(self, feature_size, num_classes):
         super(DynamicClassifier, self).__init__()
@@ -66,12 +71,6 @@ class DynamicClassifier(nn.Module):
             init.kaiming_normal_(self.linear.weight.data[original_num_classes:, :], mode='fan_out', nonlinearity='relu')
             self.linear.bias.data[original_num_classes:].fill_(0)  # Initialize new biases to zero
 
-        new_weights_size = self.linear.weight.size()
-        new_biases_size = self.linear.bias.size()
-        command = "echo 'New weight size: " + str(new_weights_size) + "'"
-        subprocess.call(command, shell=True)
-        command = "echo 'New bias size: " + str(new_biases_size) + "'"
-        subprocess.call(command, shell=True)
 
 # --------------------------------
 # Main processing logic
@@ -143,6 +142,7 @@ class main_trainer():
         self.full_x_data = f'{self.directory}/x_data_iid_multiclass.csv'
         self.full_y_data = f'{self.directory}/y_data_iid_multiclass.csv'
         
+        # Dictionary to store the labels, the initial labels are 0, 1, 2 because we only train on Monday and Tuesday
         self.dictionary = {
             "0":0, 
             "1":1,
@@ -155,41 +155,33 @@ class main_trainer():
         self.full_dataset = TensorDataset # Full dataset
 
         
-
-        
-
-       
+    # Change the number of classes in the model
     def change_num_classes(self, num_classes_new):
         if num_classes_new > self.num_classes:
             # need to change the number of classes in the model without reinitializing the model
-            command = "echo 'Old number of classes: " + str(self.num_classes) + "'"
-            subprocess.call(command, shell=True)
-            command = "echo 'Changing number of classes to " + str(num_classes_new) + "'"
-            subprocess.call(command, shell=True)
-            # self.dynamic_classifier = DynamicClassifier(feature_size=512, num_classes=num_classes_new)
+            print("Changing number of classes...")
+            print("Old number of classes: ", self.num_classes)
+            print("Changing number of classes to ", num_classes_new)
             old_weights = self.dynamic_classifier.get_weights()
             old_biases = self.dynamic_classifier.get_biases()
-            command = "echo 'Old weight size: " + str(old_weights.size()) + "'"
-            subprocess.call(command, shell=True)
-            command = "echo 'Old bias size: " + str(old_biases.size()) + "'"
-            subprocess.call(command, shell=True)
+            
+            # Update the classifier
             self.dynamic_classifier.update_classifier(old_weights, old_biases, num_classes_new, self.num_classes)
             self.num_classes = num_classes_new
             self.dynamic_classifier.to(self.device)
             
+            # Update the optimizer
             self.optimizer.param_groups.clear()
             self.optimizer.add_param_group({'params': self.model.parameters()})
             self.optimizer.add_param_group({'params': self.dynamic_classifier.parameters()})
             self.gradient_approx_optimizer = approx_Optimizer.Adahessian(list(self.model.parameters()) + list(self.dynamic_classifier.parameters()))
             self.dynamic_classifier.to(self.device)
         else: 
-            command = "echo 'Number of classes is the same!'"
-            subprocess.call(command, shell=True)
+            print("Number of classes is the same!")
         
 
     def load_full_data(self):
-        command = "echo 'Loading full data...'"
-        subprocess.call(command, shell=True)
+        print("Loading full data...")
         x_data = pd.read_csv(self.full_x_data).astype(float)
         y_data = pd.read_csv(self.full_y_data).astype(float)
         x_data = torch.from_numpy(x_data.values)
@@ -199,19 +191,17 @@ class main_trainer():
         x_data = torch.from_numpy(x_data).unsqueeze(1)
         self.full_dataset = TensorDataset(x_data, full_dataset.tensors[1])
     
+    # Train the model on Monday and Tuesday data
     def train_MONTUE(self):
-        command = "echo 'Loading Monday & Tuesday data...'"
-        subprocess.call(command, shell=True)
+        print("Training on Monday and Tuesday data...")
         train_length = len(pd.read_csv(self.Monday_file)) + len(pd.read_csv(self.Tuesday_file))
         train_dataset = Subset(self.full_dataset, np.arange(self.train_length, self.train_length + train_length))
         self.train_length += train_length
         self.label_loader = DataLoader(indexed_Dataset.IndexedDataset(train_dataset), batch_size=self.batch_size, shuffle=True, drop_last=False)
-
-        command = "echo 'Initial training...'"
-        subprocess.call(command, shell=True)
+        print("Initial training started...")
         self.Model_trainer.initial_train(self.label_loader, self.model, self.device, self.dtype, criterion=self.criterion, learning_rate=self.lr, classifer=self.dynamic_classifier, optimizer=self.optimizer)
-        command = "echo 'Initial training complete!'"
-        subprocess.call(command, shell=True)
+        print("Initial training complete!")
+
 
     def load_unlabel_data(self, file):
         train_length = len(pd.read_csv(file))
@@ -221,29 +211,24 @@ class main_trainer():
 
         # Acquire pseudo labels of the unlabel set
         # ---------------------print begin---------------------
-        command = "echo 'Acquiring pseudo labels...'"
-        subprocess.call(command, shell=True)
+        print("Acquiring pseudo labels...")
         self.pseudo_labels = self.Model_trainer.psuedo_labeling(self.model, self.device, self.dtype, loader=self.unlabel_loader, classifer=self.dynamic_classifier)
-        command = "echo 'Pseudo labels acquired!'"
-        subprocess.call(command, shell=True)
+        print("Pseudo labels acquired!")
         # ---------------------print end---------------------
 
         self.steps_per_epoch = np.ceil(int(len(self.unlabel_loader.dataset) * self.budget_ratio) / self.batch_size).astype(int)
         # ---------------------print begin---------------------
-        command = "echo 'Steps per epoch: " + str(self.steps_per_epoch) + "'" 
-        subprocess.call(command, shell=True)
-        # ---------------------print end---------------------
         print("Steps per epoch: ", self.steps_per_epoch)
+        # ---------------------print end---------------------
 
          # ---------------------print begin---------------------
         self.budget += int(train_length * self.budget_ratio)
-        command = "echo 'Budget: " + str(self.budget) + "'"
-        subprocess.call(command, shell=True)
+        print("Budget: ", self.budget)
         # ---------------------print end---------------------
 
+    # Redistribute the labels to align with the chronological order
     def redistribute_label(self):
-        command = "echo 'Redistributing labels...'"
-        subprocess.call(command, shell=True)
+        print("Redistributing labels...")
         selected_labels = []
         coreset_loader = DataLoader(Subset(self.unlabel_loader.dataset, indices=self.coreset_index), batch_size=self.batch_size, shuffle=False, drop_last=False)
         for batch, (input, target, idx) in enumerate(coreset_loader):
@@ -251,27 +236,20 @@ class main_trainer():
             selected_labels.extend(target.cpu().numpy())
         selected_labels = np.unique(selected_labels)
 
-
         dictionary_keys = {int(k) for k in self.dictionary.keys()}
         unique_labels = {int(l) for l in selected_labels}
 
-
-        command = "echo 'Unique labels: " + str(unique_labels) + "'"
-        subprocess.call(command, shell=True)
-        command = "echo 'Dictionary keys: " + str(dictionary_keys) + "'"
-        subprocess.call(command, shell=True)
+        print("Unique labels: ", unique_labels)
+        print("Dictionary keys: ", dictionary_keys)
         labels_not_in_dictionary = unique_labels - dictionary_keys
         if len(labels_not_in_dictionary) > 0:
-            command = "echo 'New labels found!'"
-            subprocess.call(command, shell=True)
+            print("New labels found!")
             for label in labels_not_in_dictionary:
                 self.dictionary[str(label)] = int(len(self.dictionary))
-                command = "echo 'Label: " + str(label) + " added to dictionary!'"
-                subprocess.call(command, shell=True)
-                command = "echo 'Corresponding value: " + str(self.dictionary[str(label)]) + "'"
-                subprocess.call(command, shell=True)
-        command = "echo 'Dictionary: " + str(self.dictionary) + "'"
-        subprocess.call(command, shell=True)
+                print("Label: ", label, " added to dictionary!")
+                print("Corresponding value: ", self.dictionary[str(label)])
+        print("Dictionary: ", self.dictionary)
+        print("Labels redistributed!")
         
  
     def train_epoch(self, epoch):
@@ -280,51 +258,28 @@ class main_trainer():
         # Training loop
         self.model.train()
         for training_step in range(self.steps_per_epoch * epoch, self.steps_per_epoch * (epoch + 1)):
-            # ---------------------print begin---------------------
-            command = "echo 'Training step: " + str(training_step) + "'"
-            subprocess.call(command, shell=True)
-            # ---------------------print end---------------------
+            print("Training step: ", training_step)
             # Check the approximation error
             if((training_step >= self.reset_step) and ((training_step - self.reset_step) % self.steps_per_epoch == 0)): 
-                # ---------------------print begin---------------------
-                command = "echo 'Extend coreset at step: " + str(training_step) + "'"
-                subprocess.call(command, shell=True)
-                self.extend_coreset(training_step)
-                command = "echo 'Extend coreset complete!'"
-                subprocess.call(command, shell=True)
-                # ---------------------print end---------------------
+                print("updating trustzone at step: ", training_step)
+                self.update_trustzone(training_step)
+                print("Trustzone updated!")
 
             # Update the coreset
             if training_step == self.reset_step or training_step == 0:
-                # print("Updating coreset at step: ", training_step)
-                # ---------------------print begin---------------------
-                command = "echo 'Updating coreset at step: " + str(training_step) + "'"
-                subprocess.call(command, shell=True)
-                # ---------------------print end---------------------
+                print("Updating coreset at step: ", training_step)
 
-                # ---------------------print begin---------------------
                 continuous_state = uncertainty_similarity.continuous_states(self.eigenv, self.label_loader, self.unlabel_loader, self.model, self.device, self.dtype, alpha=self.alpha, sigma=self.sigma, classifer=self.dynamic_classifier)
                 self.alpha = min(self.alpha + 0.01, self.alpha_max)
                 continuous_state = continuous_state[:, None]
-                command = "echo 'Continuous state shape: " + str(len(continuous_state)) + "'"
-                subprocess.call(command, shell=True)
-
 
                 self.gradients = self.Model_trainer.gradient_train(training_step, self.model, self.unlabel_loader, self.pseudo_labels, self.device, self.dtype, batch_size=self.batch_size, criterion=self.criterion, classifer=self.dynamic_classifier)
-                command = "echo 'Gradients shape: " + str(len(self.gradients)) + "'"
-                subprocess.call(command, shell=True)
-
                 self.gradients = self.gradients * continuous_state
-                # ---------------------print end---------------------
                 
-                
-                # ---------------------print begin---------------------
-                command = "echo 'select_subset at step: " + str(training_step) + "'"
-                subprocess.call(command, shell=True)
+
+                print("Selecting subset at step: ", training_step)
                 self.select_subset(training_step)
-                command = "echo 'select_subset complete!'"
-                subprocess.call(command, shell=True)
-                # ---------------------print end---------------------
+                print("Subset selected!")
 
                 # Given the coreset index, we need to redistritbute the labels
                 self.redistribute_label()
@@ -344,22 +299,15 @@ class main_trainer():
                         self.stop = 1
                         break
                     self.final_coreset = ConcatDataset([self.final_coreset, Subset(self.unlabel_loader.dataset, self.coreset_index)])
-                # ---------------------print begin---------------------
-                command = "echo 'Final coreset length at step: " + str(training_step) + " is " + str(len(self.final_coreset)) + "'"
-                subprocess.call(command, shell=True)
-                # ---------------------print end---------------------
+                print("Final coreset length at step: ", training_step, " is ", len(self.final_coreset))
                 
                 self.label_loader = ConcatDataset([self.label_loader.dataset.dataset, Subset(self.unlabel_loader.dataset.dataset, self.coreset_index)])
                 self.label_loader = DataLoader(indexed_Dataset.IndexedDataset(self.label_loader), batch_size=self.batch_size, shuffle=True, drop_last=False)
                 self.train_loader = self.coreset_loader
                 self.train_iter = iter(self.train_loader)
-                # ---------------------print begin---------------------
-                command = "echo 'Quadratic approximation at step: " + str(training_step) + "'"
-                subprocess.call(command, shell=True)
+                print("Quadratic approximation at step: ", training_step)
                 self.get_quadratic_approximation()
-                command = "echo 'Quadratic approximation complete!'"
-                subprocess.call(command, shell=True)
-                # ---------------------print end---------------------
+                print("Quadratic approximation complete!")
             try: 
                 batch = next(self.train_iter)
             except StopIteration:
@@ -370,13 +318,9 @@ class main_trainer():
             data, target = data.to(self.device, dtype=self.dtype), target.to(self.device, dtype=self.dtype).squeeze().long()
 
             target = torch.tensor([self.dictionary[str(t.item())] for t in target.cpu()], dtype=self.dtype, device=self.device).long()
-            # ---------------------print begin---------------------
-            command = "echo 'forward_and_backward at step: " + str(training_step) + "'"
-            subprocess.call(command, shell=True)
+            print("Forward and backward at step: ", training_step)
             self.forward_and_backward(data, target, idx)
-            command = "echo 'forward_and_backward at step: " + str(training_step) + " complete!'"
-            subprocess.call(command, shell=True)
-            # ---------------------print end---------------------
+            print("Forward and backward complete!")
 
     def save_model_states(self, resnet_model, dynamic_classifier):
         # Save both state dictionaries in a single file
@@ -405,17 +349,8 @@ class main_trainer():
         # print("Biases Size:", biases_size)    # Example Output: torch.Size([3])
 
         self.load_model_states(self.model, self.dynamic_classifier)
+        print("Model loaded!")
 
-        weights_size = self.dynamic_classifier.get_weights_size()
-        biases_size = self.dynamic_classifier.get_biases_size()
-
-        print("Weights Size:", weights_size) 
-        print("Biases Size:", biases_size)   
-
-        command = "echo 'Initial model loaded!'"
-        subprocess.call(command, shell=True)
-        command = "echo 'Loading Monday & Tuesday data...'"
-        subprocess.call(command, shell=True)
         train_length = len(pd.read_csv(self.Monday_file)) + len(pd.read_csv(self.Tuesday_file))
         train_dataset = Subset(self.full_dataset, np.arange(self.train_length, self.train_length + train_length))
         self.train_length += train_length
@@ -433,18 +368,15 @@ class main_trainer():
         for day in range(3, 6):
             if day == 3:
                 file = self.Wednesday_file
-                command = "echo 'Loading Wednesday data...'"
-                subprocess.call(command, shell=True)
+                print("Loading Wednesday data...")
             elif day == 4:
                 self.stop = 0 
                 file = self.Thursday_file
-                command = "echo 'Loading Thursday data...'"
-                subprocess.call(command, shell=True)
+                print("Loading Thursday data...")
             elif day == 5:
                 self.stop = 0
                 file = self.Friday_file
-                command = "echo 'Loading Friday data...'"
-                subprocess.call(command, shell=True)
+                print("Loading Friday data...")
             self.load_unlabel_data(file)
             for epoch in range(100):
                 self.train_epoch(epoch)
@@ -475,7 +407,7 @@ class main_trainer():
         self.optimizer.step()
         self.apply_fractional_optimal_step()
 
-    def extend_coreset(self, training_step):   
+    def update_trustzone(self, training_step):   
         true_loss = 0 
         count = 0 
         self.approx_loader = DataLoader(Subset(self.unlabel_loader.dataset, indices=self.coreset_index), batch_size=self.batch_size, shuffle=False, drop_last=False)
@@ -504,8 +436,6 @@ class main_trainer():
         actual_reduction = self.start_loss - true_loss
         approx_reduction = self.start_loss - approx_loss
         rho = actual_reduction / approx_reduction
-        command = "echo 'Rho at step: " + str(training_step) + " is " + str(rho) + "'"
-        subprocess.call(command, shell=True)
         if rho > 0.75:
             self.delta *= 2  # Expand the trust region
         elif rho < 0.1:
@@ -565,7 +495,6 @@ class main_trainer():
         if step_norm > self.delta:
             step *= self.delta / step_norm  # Scale step to fit within the trust region
         self.optimal_step = step
-        print("Quadratic approximation complete!")
 
     def update_train_loader_and_weights(self, training_step):
         print("Updating train loader and weights at step: ", training_step)
@@ -615,8 +544,7 @@ class main_trainer():
         print("Greedy FL Complete at step: ", training_step)
 
     def test_accuracy(self):
-        command = "echo 'Testing accuracy...'"
-        subprocess.call(command, shell=True)
+        print("Testing accuracy...")
         unlabel_loader = self.unlabel_loader
         
         self.model.eval()
@@ -631,7 +559,7 @@ class main_trainer():
 
                 # target = torch.tensor([self.dictionary[str(t.item())] for t in target.cpu()], dtype=self.dtype, device=self.device).long()
                 target = torch.tensor([
-                    self.dictionary[str(t.item())] if str(t.item()) in self.dictionary else t 
+                    self.dictionary[str(t.item())] if str(t.item()) in self.dictionary else t + 100
                     for t in target.cpu()
                 ], dtype=self.dtype, device=self.device).long()
 
@@ -641,48 +569,14 @@ class main_trainer():
                 _, pseudo_label = torch.max(probabilities, dim=1)
                 predictions.extend(pseudo_label.cpu().numpy())
                 targets.extend(target.cpu().numpy())
-        predictions = np.array(predictions)
-        targets = np.array(targets)
-        num_classes = max(max(predictions), max(targets)) + 1
-        confusion_matrix_result = np.zeros((num_classes, num_classes), dtype=int)
-        for pred, true in zip(predictions, targets):
-            confusion_matrix_result[true, pred] += 1
-        print("Manually constructed confusion matrix:")
-        print(confusion_matrix_result) 
-       
-        cm = confusion_matrix(targets, predictions, labels=list(range(num_classes)))
-        accuracy = accuracy_score(targets, predictions)
-        macro_precision_conservative = precision_score(targets, predictions, average='macro', zero_division=0)
-        macro_precision_non_conservative = precision_score(targets, predictions, average='macro', zero_division=1)
-        macro_recall_conservative = recall_score(targets, predictions, average='macro', zero_division=0)
-        macro_recall_non_conservative = recall_score(targets, predictions, average='macro', zero_division=1)
-        macro_f1_conservative = f1_score(targets, predictions, average='macro', zero_division=0)
-        macro_f1_non_conservative = f1_score(targets, predictions, average='macro', zero_division=1)
-        weighted_precision_conservative = precision_score(targets, predictions, average='weighted', zero_division=0)
-        weighted_precision_non_conservative = precision_score(targets, predictions, average='weighted', zero_division=1)
-        weighted_recall_conservative = recall_score(targets, predictions, average='weighted', zero_division=0)
-        weighted_recall_non_conservative = recall_score(targets, predictions, average='weighted', zero_division=1)
-        weighted_f1_conservative = f1_score(targets, predictions, average='weighted', zero_division=0)
-        weighted_f1_non_conservative = f1_score(targets, predictions, average='weighted', zero_division=1)
-        print("Accuracy: ", accuracy)
-        print("Confusion Matrix: ", cm)
-        print("Macro Precision Conservative: ", macro_precision_conservative)
-        print("Macro Precision Non-Conservative: ", macro_precision_non_conservative)
-        print("Macro Recall Conservative: ", macro_recall_conservative)
-        print("Macro Recall Non-Conservative: ", macro_recall_non_conservative)
-        print("Macro F1 Conservative: ", macro_f1_conservative)
-        print("Macro F1 Non-Conservative: ", macro_f1_non_conservative)
-        print("Weighted Precision Conservative: ", weighted_precision_conservative)
-        print("Weighted Precision Non-Conservative: ", weighted_precision_non_conservative)
-        print("Weighted Recall Conservative: ", weighted_recall_conservative)
-        print("Weighted Recall Non-Conservative: ", weighted_recall_non_conservative)
-        print("Weighted F1 Conservative: ", weighted_f1_conservative)
-        print("Weighted F1 Non-Conservative: ", weighted_f1_non_conservative)
+        predictions = np.array(predictions).astype(int)
+        targets = np.array(targets).astype(int)
 
+        unique_labels = np.unique(targets).tolist()
         print("Conservative classification Report: ")
-        print(classification_report(targets, predictions, labels=list(range(num_classes)), zero_division=0))
+        print(classification_report(targets, predictions, labels=unique_labels, zero_division=0))
         print("Non-Conservative classification Report: ")
-        print(classification_report(targets, predictions, labels=list(range(num_classes)), zero_division=1))
+        print(classification_report(targets, predictions, labels=unique_labels, zero_division=1))
 
 
         self.model.train()

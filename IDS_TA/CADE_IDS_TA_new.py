@@ -1,3 +1,7 @@
+"""
+Code performing CADE on the IDS dataset under TA setting
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -31,7 +35,9 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 np.random.seed(seed)
 
-
+"""
+CADE Model
+"""
 class DynamicClassifier(nn.Module):
     def __init__(self, feature_size, num_classes):
         super(DynamicClassifier, self).__init__()
@@ -173,14 +179,16 @@ class Autoencoder(nn.Module):
         x = self.encoder(x)
         x = self.decoder(x)
         return x
-    
+
+
 class main_tariner():
     def __init__(self):
-
+        # Initialization 
         self.Model_trainer = model_Trainer # Model trainer
         self.device, self.dtype = test_Cuda.check_device()
-        self.CADE_model = Autoencoder().to(device=self.device, dtype=self.dtype)
+        self.CADE_model = Autoencoder().to(device=self.device, dtype=self.dtype) # CADE model
 
+        # Dynamic classifier: determine the number of classes of the output layer
         self.num_classes = 3
         self.dynamic_classifier = DynamicClassifier(feature_size=512, num_classes=self.num_classes)
         self.dynamic_classifier.to(self.device)
@@ -218,12 +226,14 @@ class main_tariner():
         self.Wednesday_data, self.Wednesday_x, self.Wednesday_y = None, None, None
         self.Thursday_data, self.Thursday_x, self.Thursday_y = None, None, None
 
+        # Initialize dictionary: only contain types from Monday and Tuesday
         self.dictionary = {
             "0":0, 
             "1":1,
             "2":2
             }
 
+    # Load data
     def load_data(self):
         """
         Please adjust this part of the code to suit your framework. 
@@ -265,6 +275,7 @@ class main_tariner():
         contrastive_loss = torch.mean(is_same * dist + (1 - is_same) * torch.relu(margin - dist))
         return contrastive_loss, recon_loss
     
+    # Function to train the contrastive autoencoder one time
     def train_contrastiveAE(self, train_loader, model, optimizer, scheduler, epoch, margin, lambda_1):
         model.train()
         train_bar = train_loader
@@ -281,6 +292,7 @@ class main_tariner():
             scheduler.step()
         return model, total_epoch_loss
     
+    # Function to test the contrastive autoencoder
     def test_contrastiveAE(self, train_loader, model, margin, lambda_1):
         model.eval()
         train_bar = train_loader
@@ -296,6 +308,7 @@ class main_tariner():
                 total_epoch_loss += loss.item()
         return total_epoch_loss
 
+    # Function to train the contrastive autoencoder iteratively 
     def contrastiveAE_model(self, x_train, y_train, batch_size, similar_samples_ratio, learning_rate, margin_rate, lambda_value, model, optimizer):
         X = torch.tensor(x_train, dtype=torch.float32)
         y = torch.tensor(y_train, dtype=torch.long)
@@ -307,6 +320,7 @@ class main_tariner():
             model.train()
             model, _ = self.train_contrastiveAE(dataloader, model, optimizer, scheduler, epoch, margin_rate, lambda_value)
 
+    # Function to predict the latent space of the data
     def predict(self, x_test, model):
         model.eval()
         x_test = torch.tensor(x_test, dtype=torch.float32)
@@ -317,6 +331,7 @@ class main_tariner():
             z_test = model.encoder(x_test)
         return z_test.detach().cpu().numpy()
 
+    # Function to get the latent data for each family
     def get_latent_data_for_each_family(self, z_train, y_train):
         N = len(np.unique(y_train))
         N_family = [len(np.where(y_train == family)[0]) for family in range(N)]
@@ -329,6 +344,7 @@ class main_tariner():
 
         return N, N_family, z_family
 
+    # Function to get the latent distance between sample and centroid
     def get_latent_distance_between_sample_and_centroid(self, z_family, centroids, N, N_family):
         dis_family = []  
         for i in range(N): 
@@ -339,6 +355,7 @@ class main_tariner():
 
         return dis_family
 
+    # Function to get the median absolute deviation for each family
     def get_MAD_for_each_family(self, dis_family, N, N_family):
         mad_family = []
         median_list = []
@@ -358,6 +375,7 @@ class main_tariner():
         labels = np.argmin(dist_matrix, axis=1)
         return labels
 
+    # Select samples for training the classifier based on the anomaly score
     def sample_selection(self, X_test, y_test, z_test, centroids, dis_family, mad_family):
         selection_rate = self.selection_rate
         centroids_array = np.array(centroids)  
@@ -440,15 +458,14 @@ class main_tariner():
         learning_rate = 0.0001
         self.get_data()
         # self.MONTUE_train()
-
         
+        # Check for every combination of margin and lambda
         for l in self.lmbda_list:
             for m in self.margin_list:
                 self.X_train = self.Mon_Tue_x
                 self.y_train = self.Mon_Tue_y
                 
                 # Reset the classifier
-
                 self.dictionary = {
                     "0":0, 
                     "1":1,
@@ -458,6 +475,7 @@ class main_tariner():
                 self.dynamic_classifier = DynamicClassifier(feature_size=512, num_classes=self.num_classes)
                 self.dynamic_classifier.to(self.device)
 
+                # Load the initial model
                 self.load_model_states(self.classifer_model, self.dynamic_classifier)
 
                 self.classifer_model_optimizer = optim.Adam(
@@ -465,16 +483,8 @@ class main_tariner():
                     lr=self.classifer_model_lr, weight_decay=0.0001
                 )
 
-                weights_size = self.dynamic_classifier.get_weights_size()
-                biases_size = self.dynamic_classifier.get_biases_size()
-                print("Weights Size:", weights_size) 
-                print("Biases Size:", biases_size)   
-                command = "echo 'Initial model loaded!'"
-                subprocess.call(command, shell=True)
-
-                command = f'echo "processing m={m}, l={l}"'
-                subprocess.call(command, shell=True)
-                
+                print(f'lambda: {l}, margin: {m}')
+                # Load the CADE model
                 self.CADE_model.load_state_dict(torch.load(f'initial_Models/CADE-m{m}-l{l}.pth'))
                 train_dataloader = self.get_dataloader(self.Mon_Tue_x, self.Mon_Tue_y, batch_size=1024, similar_samples_ratio=0.25)
                 scheduler = CosineAnnealingLR(self.CADE_optimizer, T_max= 250 * len(train_dataloader), eta_min=learning_rate * 5e-4)

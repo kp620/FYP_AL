@@ -1,3 +1,8 @@
+"""
+Calculate uncertainties and similarities for each unlabelled sample
+Output continuous states for each unlabelled sample
+"""
+
 import numpy as np
 import torch
 import torch.nn.functional as F

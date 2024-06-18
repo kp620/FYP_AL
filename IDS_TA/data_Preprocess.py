@@ -1,3 +1,12 @@
+"""
+Data Preprocessing for IDS IID Multiclass dataset
+1. Load IDS IID Multiclass dataset
+2. PCA
+3. Kmeans++
+4. Mini-batch Kmeans
+5. Random sampling from each cluster
+"""
+
 import pandas as pd
 import numpy as np
 import torch

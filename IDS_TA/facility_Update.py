@@ -1,3 +1,8 @@
+"""
+Facility Location Function
+Selects instances that maximize the facility location function, which is a submodular function that models the diversity of a subset of instances.
+"""
+
 import numpy as np
 from submodlib.functions.facilityLocation import FacilityLocationFunction
 from submodlib.helper import create_kernel

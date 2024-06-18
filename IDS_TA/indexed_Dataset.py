@@ -1,3 +1,8 @@
+"""
+IndexedDataset class
+Self-defined class to return the index of the data in the dataset
+"""
+
 class IndexedDataset():
     def __init__(self, dataset):
         self.dataset = dataset

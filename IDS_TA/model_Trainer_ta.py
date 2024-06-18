@@ -1,3 +1,7 @@
+"""
+Model trainer module for training the model with the given data.
+"""
+
 import restnet_1d_dynamic as restnet_1d
 
 def initial_train(train_loader, model, device, dtype, criterion, learning_rate, classifer, optimizer):

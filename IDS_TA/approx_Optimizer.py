@@ -1,3 +1,7 @@
+"""
+CITE: Yao Z, Gholami A, Shen S, Mustafa M, Keutzer K, Mahoney M. Adahessian: An adaptive second order optimizer for machine learning. Inproceedings of the AAAI conference on artificial intelligence 2021 May 18 (Vol. 35, No. 12, pp. 10665-10673).
+"""
+
 import math
 import torch
 from torch.optim.optimizer import Optimizer
