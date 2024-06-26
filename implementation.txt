@@ -17,7 +17,7 @@ Implementation:
         8. "python submodlib_config.py" : Use sbatch to run this file
     e. install any package, e.g. torch...
 5. Modify the submodlib in the virtual environment 
-    a. Find submodlib/functions/setFunction.py
+    a. Find myvenv/lib/python3.10/site-packages/submodlib/functions/setFunction.py
     b. change the maximize function to: 
     "
         if budget > len(self.effective_ground):

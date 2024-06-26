@@ -49,7 +49,7 @@ In order to perform the IDS experiment under IID setting, please follow the foll
 
 `python data_Preprocess.py --rs_rate=rs_rate, --d=d, --K=K`
 
-This will first load the IDS dataset, then performs the K-means++ algorithm to form K clusters. From each cluster, a portion samples are chosen to form the initial training set. The selected and non_selected indexes will be stored in local files for future usage. 
+This will first load the IDS dataset, then performs the K-means++ algorithm to form K clusters. From each cluster, a portion samples are chosen to form the initial training set. The selected and non_selected indexes, as well as the eigen vector, will be stored in local files for future usage. Need to change the directory to your own local file!
 
 rs_rate determines the selection rate of samples to form the initial set. 
 
