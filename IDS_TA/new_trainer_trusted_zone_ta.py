@@ -339,14 +339,16 @@ class main_trainer():
     
     def main_train(self):
         self.load_full_data()
-        # self.train_MONTUE()
-        # # save the weights of the linear layer 
-        # self.save_model_states(self.model, self.dynamic_classifier)
-        # weights_size = self.dynamic_classifier.get_weights_size()
-        # biases_size = self.dynamic_classifier.get_biases_size()
+        # This trains the model on Monday and Tuesday data, and saves the model states
+        # Can comment this out if the model states are already saved!!!
+        self.train_MONTUE()
+        # save the weights of the linear layer 
+        self.save_model_states(self.model, self.dynamic_classifier)
+        weights_size = self.dynamic_classifier.get_weights_size()
+        biases_size = self.dynamic_classifier.get_biases_size()
 
-        # print("Weights Size:", weights_size)  # Example Output: torch.Size([3, 512])
-        # print("Biases Size:", biases_size)    # Example Output: torch.Size([3])
+        print("Weights Size:", weights_size)  # Example Output: torch.Size([3, 512])
+        print("Biases Size:", biases_size)    # Example Output: torch.Size([3])
 
         self.load_model_states(self.model, self.dynamic_classifier)
         print("Model loaded!")
