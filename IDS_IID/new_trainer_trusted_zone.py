@@ -4,6 +4,8 @@ Main training logic for the coreset selection algorithm with trust region constr
 
 # --------------------------------
 # Import area
+import sys 
+sys.path.append("../")
 import test_Cuda, model_Trainer, approx_Optimizer, restnet_1d, facility_Update, indexed_Dataset, uncertainty_similarity
 import torch
 import torch.nn as nn
