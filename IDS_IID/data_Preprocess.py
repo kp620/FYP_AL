@@ -121,6 +121,7 @@ def cluster_sample(full_dataset, full_dataset_pca, C, rs_rate = 0.05):
     selected_indices = np.concatenate(indices_list)
     not_selected_indice = np.setdiff1d(np.arange(full_length), selected_indices)
 
+    # USE OWN DIRECTORY!!
     np.save('/vol/bitbucket/kp620/FYP/dataset/not_selected_indice.npy', not_selected_indice)
     np.save('/vol/bitbucket/kp620/FYP/dataset/selected_indice.npy', selected_indices)
     
@@ -133,6 +134,7 @@ def main(rs_rate = 0.001, d = 10, K = 15):
     print('Full dataset loaded!')
 
     full_dataset_pca, eigenv_d = self_PCA(full_dataset, d = d)
+    # USE OWN DIRECTORY!!
     np.save('/vol/bitbucket/kp620/FYP/dataset/eigvecs_d.npy', eigenv_d)
     print('PCA finished!')
 

@@ -1,0 +1,37 @@
+Implementation: 
+1. Connect to a remote hose 
+2. Clone from github 
+3. Connect to gpucluster
+4. Configure Python Virtual Environment 
+    a. cd /vol/bitbucket/${USER}
+    b. python3 -m virtualenv /vol/bitbucket/${USER}/myvenv
+    c. source myvenv/bin/activate 
+    d. Configure submodlib
+        1. Go into the virtual environment
+        2. "git clone https://github.com/decile-team/submodlib.git"
+        3. Go to the submodlib directory 
+        4. "pip install pybind11"
+        5. "python setup.py build"
+        6. "pip install ."
+        7. "pip install "numpy==1.22.0""
+        8. "python submodlib_config.py" : Use sbatch to run this file
+    e. install any package, e.g. torch...
+5. Modify the submodlib in the virtual environment 
+    a. Find submodlib/functions/setFunction.py
+    b. change the maximize function to: 
+    "
+        if budget > len(self.effective_ground):
+			budget = len(self.effective_ground) - 1
+			if(budget<0):
+				budget = 0
+			print("Budget is greater than effective ground set size. Resetting budget to ", budget)
+			# raise Exception("Budget must be less than effective ground set size")
+			# return [(-1,-1)]
+		if type(costs) == type(None):
+			return self.cpp_obj.maximize(optimizer, budget, stopIfZeroGain, stopIfNegativeGain, epsilon, verbose, show_progress, [], costSensitiveGreedy)
+		else:
+			if len(costs) != self.n:
+				raise Exception("Mismtach between length of costs and number of elements in the groundset")
+			return self.cpp_obj.maximize(optimizer, budget, stopIfZeroGain, stopIfNegativeGain, epsilon, verbose, show_progress, costs, costSensitiveGreedy)
+    "
+

@@ -85,8 +85,12 @@ class main_trainer():
         # Load training data, acquire label and unlabel set using rs_rate / us_rate
         print("Loading selected and non-selected samples...")
         data_dic_path = "/vol/bitbucket/kp620/FYP/dataset"
-        self.eigenv = np.load(f'{data_dic_path}/eigvecs_d.npy') # Load eigenvectors
+
+        # USE OWN DIRECTORY
+        self.eigenv = np.load(f'{data_dic_path}/eigvecs_d.npy') # Load eigenvectors 
         self.eigenv = torch.tensor(self.eigenv, dtype=self.dtype, device=self.device)
+
+        # USE OWN DIRECTORY
         selected_indice = np.load(f'{data_dic_path}/selected_indice.npy')
         not_selected_indice = np.load(f'{data_dic_path}/not_selected_indice.npy')
         print("Training samples loaded!")
